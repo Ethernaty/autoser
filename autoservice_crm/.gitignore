@@ -1,0 +1,40 @@
+﻿# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.py[cod]
+*.so
+.pytest_cache/
+
+# Virtualenv
+.venv/
+venv/
+ENV/
+
+# Node
+node_modules/
+.npm/
+.next/
+dist/
+build/
+coverage/
+
+# Logs
+*.log
+
+# Env files
+.env
+.env.*
+
+# OS
+.DS_Store
+
+# DB
+*.sqlite
+
+# PIDs
+*.pid
+
+# IDE
+.vscode/
