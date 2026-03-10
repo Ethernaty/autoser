@@ -10,7 +10,6 @@ from uuid import UUID, uuid4
 
 from app.core.config import get_settings
 from app.core.prometheus_metrics import get_metrics_registry
-from app.core.reliability.chaos import get_chaos_engine
 from app.core.serialization import JsonSerializer, Serializer
 
 
@@ -41,7 +40,6 @@ class MemoryEventStreamAdapter:
         self._messages: list[EventMessage] = []
         self._lock = asyncio.Lock()
         self._metrics = get_metrics_registry()
-        self._chaos = get_chaos_engine()
 
     async def publish(self, *, tenant_id: UUID, name: str, payload: dict[str, Any]) -> EventMessage:
         message = EventMessage(
@@ -51,9 +49,6 @@ class MemoryEventStreamAdapter:
             payload=dict(payload),
             created_at=datetime.now(UTC),
         )
-        if self._chaos.should_drop_event():
-            self._metrics.increment_counter("event_stream_dropped_total", labels={"backend": "memory"})
-            return message
         async with self._lock:
             self._messages.append(message)
         return message
@@ -79,7 +74,6 @@ class KafkaEventStreamAdapter:
         self._serializer = serializer or JsonSerializer()
         self._producer = None
         self._metrics = get_metrics_registry()
-        self._chaos = get_chaos_engine()
 
     async def _get_producer(self):
         if self._producer is not None:
@@ -104,9 +98,6 @@ class KafkaEventStreamAdapter:
             payload=dict(payload),
             created_at=datetime.now(UTC),
         )
-        if self._chaos.should_drop_event():
-            self._metrics.increment_counter("event_stream_dropped_total", labels={"backend": "kafka"})
-            return message
         producer = await self._get_producer()
         wire_payload = {
             "event_id": str(message.event_id),

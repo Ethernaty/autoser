@@ -14,7 +14,6 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.cache import CacheBackend, get_cache_backend
 from app.core.config import get_settings
-from app.core.distributed_lock import DistributedLockHandle, DistributedLockManager, get_distributed_lock_manager
 from app.core.exceptions import CrossTenantDataViolation, TenantScopeError
 from app.core.metrics_hooks import MetricsHook, get_metrics_hook
 from app.core.policies import read_retry_policy, run_with_retry, run_with_timeout, write_retry_policy
@@ -87,7 +86,6 @@ class BaseService:
         serializer: Serializer | None = None,
         cache_backend: CacheBackend | None = None,
         metrics_hook: MetricsHook | None = None,
-        distributed_lock_manager: DistributedLockManager | None = None,
     ) -> None:
         if tenant_id is None:
             raise TenantScopeError(code="tenant_scope_required", message="Service tenant scope is required")
@@ -111,7 +109,6 @@ class BaseService:
         self.serializer = serializer or JsonSerializer()
         self.cache = cache_backend or get_cache_backend()
         self.metrics = metrics_hook or get_metrics_hook()
-        self._distributed_lock_manager = distributed_lock_manager or get_distributed_lock_manager()
         self._logger = logging.getLogger("app.security.tenant_cache_guard")
 
     @classmethod
@@ -195,20 +192,6 @@ class BaseService:
     @classmethod
     async def get_singleflight_lock(cls, key: str) -> asyncio.Lock:
         return await cls._get_singleflight_registry().get_lock(key)
-
-    async def acquire_distributed_lock(self, *, key: str, ttl_seconds: float) -> DistributedLockHandle | None:
-        try:
-            return await self._distributed_lock_manager.acquire(key=key, ttl_seconds=ttl_seconds)
-        except Exception:
-            return None
-
-    async def release_distributed_lock(self, handle: DistributedLockHandle | None) -> None:
-        if handle is None:
-            return
-        try:
-            await self._distributed_lock_manager.release(handle)
-        except Exception:
-            return
 
     async def service_rate_limit(self, *, key: str, limit: int, window_seconds: int) -> None:
         self._assert_tenant_cache_key(key)

@@ -17,7 +17,6 @@ from starlette.routing import Match
 from app.core.config import get_settings
 from app.core.exceptions import AppError
 from app.core.prometheus_metrics import get_metrics_registry
-from app.core.reliability.chaos import get_chaos_engine
 from app.core.runtime_guards import assert_bounded_structure
 
 
@@ -118,10 +117,8 @@ return {count, reset}
 
         self._redis = Redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
         self._key_prefix = key_prefix
-        self._chaos = get_chaos_engine()
 
     async def hit(self, *, key: str, window_seconds: int) -> tuple[int, int]:
-        self._chaos.maybe_raise_redis_failure()
         now = time.time()
         zset_key = f"{self._key_prefix}:{key}"
         window_start = now - window_seconds

@@ -248,25 +248,19 @@ class OrderService(BaseService):
 
         lock = await self.get_singleflight_lock(key)
         async with lock:
-            distributed_handle = await self.acquire_distributed_lock(key=f"sf:orders:{key}", ttl_seconds=5.0)
             cached = await self._safe_cache_get(key)
             if cached is not _CACHE_MISS:
                 if isinstance(cached, dict) and cached.get("__negative") is True:
-                    await self.release_distributed_lock(distributed_handle)
                     return None
-                await self.release_distributed_lock(distributed_handle)
                 return cached
 
-            try:
-                value = await loader()
-                if value is None and negative_ttl is not None:
-                    await self._safe_cache_set(key, {"__negative": True}, ttl_seconds=negative_ttl)
-                    return None
+            value = await loader()
+            if value is None and negative_ttl is not None:
+                await self._safe_cache_set(key, {"__negative": True}, ttl_seconds=negative_ttl)
+                return None
 
-                await self._safe_cache_set(key, value, ttl_seconds=self.cache_ttl_seconds)
-                return value
-            finally:
-                await self.release_distributed_lock(distributed_handle)
+            await self._safe_cache_set(key, value, ttl_seconds=self.cache_ttl_seconds)
+            return value
 
     async def _safe_cache_get(self, key: str):
         self._assert_tenant_cache_key(key)

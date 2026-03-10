@@ -1,7 +1,6 @@
 from app.middleware.api_key_auth_middleware import ApiKeyAuthMiddleware
 from app.middleware.api_key_scope_guard import RequireExternalScope
 from app.middleware.auth_middleware import AuthMiddleware
-from app.middleware.chaos_injection_middleware import ChaosInjectionMiddleware
 from app.middleware.feature_quota_guard import RequireFeature, RequireQuota
 from app.middleware.external_platform_middleware import ExternalPlatformMiddleware
 from app.middleware.membership_middleware import MembershipValidationMiddleware
@@ -20,5 +19,4 @@ __all__ = [
     "RequireFeature",
     "RequireQuota",
     "TracingMiddleware",
-    "ChaosInjectionMiddleware",
 ]

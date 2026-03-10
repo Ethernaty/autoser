@@ -9,7 +9,6 @@ from uuid import UUID, uuid4
 
 from app.core.jobs.job_queue import JobEnvelope, JobQueue
 from app.core.prometheus_metrics import get_metrics_registry
-from app.core.reliability.chaos import get_chaos_engine
 
 
 @dataclass(frozen=True)
@@ -47,7 +46,6 @@ class KafkaQueueAdapter(JobQueue):
         self._consumer = None
         self._assignment_ready = False
         self._metrics = get_metrics_registry()
-        self._chaos = get_chaos_engine()
         self._inflight: dict[str, _KafkaDeliveryTag] = {}
         self._inflight_lock = asyncio.Lock()
 
@@ -60,7 +58,6 @@ class KafkaQueueAdapter(JobQueue):
         retry_base_delay_seconds: float = 1.0,
         delay_seconds: float = 0.0,
     ) -> JobEnvelope:
-        await self._chaos.maybe_add_queue_delay_async()
         envelope = JobEnvelope(
             available_at=time.time() + max(0.0, delay_seconds),
             task_name=task_name,
@@ -78,7 +75,6 @@ class KafkaQueueAdapter(JobQueue):
         return envelope
 
     async def dequeue(self, timeout_seconds: float = 1.0) -> JobEnvelope | None:
-        await self._chaos.maybe_add_queue_delay_async()
         consumer = await self._get_consumer()
         records = await consumer.getmany(timeout_ms=max(50, int(timeout_seconds * 1000)), max_records=1)
         if not records:

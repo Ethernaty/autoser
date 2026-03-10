@@ -7,7 +7,6 @@ from uuid import UUID, uuid4
 
 from app.core.jobs.job_queue import JobEnvelope, JobQueue
 from app.core.prometheus_metrics import get_metrics_registry
-from app.core.reliability.chaos import get_chaos_engine
 
 
 class RedisQueueAdapter(JobQueue):
@@ -38,7 +37,6 @@ return 1
         self._namespace = namespace
         self._visibility_timeout_seconds = max(5, visibility_timeout_seconds)
         self._metrics = get_metrics_registry()
-        self._chaos = get_chaos_engine()
 
     @property
     def _ready_key(self) -> str:
@@ -71,8 +69,6 @@ return 1
         retry_base_delay_seconds: float = 1.0,
         delay_seconds: float = 0.0,
     ) -> JobEnvelope:
-        self._chaos.maybe_raise_redis_failure()
-        await self._chaos.maybe_add_queue_delay_async()
         now = time.time()
         available_at = now + max(0.0, delay_seconds)
         job = JobEnvelope(
@@ -104,8 +100,6 @@ return 1
         return job
 
     async def dequeue(self, timeout_seconds: float = 1.0) -> JobEnvelope | None:
-        self._chaos.maybe_raise_redis_failure()
-        await self._chaos.maybe_add_queue_delay_async()
         await self._promote_due_jobs()
         await self._reclaim_expired_leases(limit=200)
 
@@ -153,8 +147,6 @@ return 1
         return envelope
 
     async def requeue(self, job: JobEnvelope, *, error: Exception) -> None:
-        self._chaos.maybe_raise_redis_failure()
-        await self._chaos.maybe_add_queue_delay_async()
         if job.delivery_tag is None or job.delivery_token is None:
             return
 
@@ -184,13 +176,11 @@ return 1
         await self._redis.zadd(self._delayed_key, {job_id: next_available})
 
     async def ack(self, job: JobEnvelope) -> None:
-        self._chaos.maybe_raise_redis_failure()
         if job.delivery_tag is None or job.delivery_token is None:
             return
         await self._release_processing(job_id=job.delivery_tag, lease_token=job.delivery_token, delete_job=True)
 
     async def size(self) -> int:
-        self._chaos.maybe_raise_redis_failure()
         async with self._redis.pipeline(transaction=False) as pipe:
             await pipe.llen(self._ready_key)
             await pipe.zcard(self._delayed_key)

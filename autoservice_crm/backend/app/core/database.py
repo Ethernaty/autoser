@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session, sessionmaker, with_loader_criteria
 from app.core.config import get_settings
 from app.core.exceptions import TenantScopeError
 from app.core.prometheus_metrics import get_metrics_registry
-from app.core.reliability.chaos import get_chaos_engine
 from app.core.runtime_guards import assert_sync_db_call_safe
 from app.core.tenant_scope import get_current_endpoint, get_current_tenant_id
 from app.models.base import Base, TenantScopedMixin
@@ -127,10 +126,6 @@ def enforce_tenant_scope(orm_execute_state) -> None:  # noqa: ANN001
 
 @event.listens_for(Engine, "before_cursor_execute")
 def before_cursor_execute(conn: Connection, cursor, statement, parameters, context, executemany) -> None:  # noqa: ANN001
-    try:
-        get_chaos_engine().maybe_add_db_latency_sync()
-    except Exception:
-        pass
     conn.info.setdefault("query_start_time", []).append(time.perf_counter())
     conn.info.setdefault("query_statement", []).append(statement)
     conn.info.setdefault("query_parameters", []).append(parameters)

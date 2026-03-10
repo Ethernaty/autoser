@@ -8,7 +8,6 @@ from typing import Any, Protocol
 from uuid import UUID, uuid4
 
 from app.core.prometheus_metrics import get_metrics_registry
-from app.core.reliability.chaos import get_chaos_engine
 
 
 @dataclass(order=True)
@@ -64,7 +63,6 @@ class InMemoryJobQueue(JobQueue):
     def __init__(self):
         self._heap: list[JobEnvelope] = []
         self._lock = asyncio.Lock()
-        self._chaos = get_chaos_engine()
         self._metrics = get_metrics_registry()
 
     async def enqueue(
@@ -76,7 +74,6 @@ class InMemoryJobQueue(JobQueue):
         retry_base_delay_seconds: float = 1.0,
         delay_seconds: float = 0.0,
     ) -> JobEnvelope:
-        await self._chaos.maybe_add_queue_delay_async()
         job = JobEnvelope(
             available_at=time.monotonic() + max(0.0, delay_seconds),
             task_name=task_name,
@@ -90,7 +87,6 @@ class InMemoryJobQueue(JobQueue):
         return job
 
     async def dequeue(self, timeout_seconds: float = 1.0) -> JobEnvelope | None:
-        await self._chaos.maybe_add_queue_delay_async()
         deadline = time.monotonic() + max(0.0, timeout_seconds)
         while time.monotonic() <= deadline:
             async with self._lock:

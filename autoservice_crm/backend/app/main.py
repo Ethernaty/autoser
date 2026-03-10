@@ -13,8 +13,6 @@ from app.controllers.client_controller import router as client_router
 from app.controllers.employee_controller import router as employee_router
 from app.controllers.external_api_controller import router as external_api_router
 from app.controllers.health_controller import router as health_router
-from app.controllers.internal_security_controller import router as internal_security_router
-from app.controllers.internal_system_health_controller import router as internal_system_health_router
 from app.controllers.internal_tenant_controller import router as internal_tenant_router
 from app.controllers.order_controller import router as order_router
 from app.controllers.subscription_controller import router as subscription_router
@@ -28,14 +26,11 @@ from app.core.graceful_shutdown import get_shutdown_manager
 from app.core.http_delivery_engine import get_http_delivery_engine
 from app.core.jobs import get_job_worker
 from app.core.logging import configure_structured_logging
-from app.core.migration_guard import assert_database_schema_up_to_date
 from app.core.tracing import initialize_tracing, shutdown_tracing
 from app.middleware.api_key_auth_middleware import ApiKeyAuthMiddleware
 from app.middleware.auth_middleware import AuthMiddleware
-from app.middleware.chaos_injection_middleware import ChaosInjectionMiddleware
 from app.middleware.external_platform_middleware import ExternalPlatformMiddleware
 from app.middleware.membership_middleware import MembershipValidationMiddleware
-from app.middleware.observability_middleware import ObservabilityMiddleware
 from app.middleware.payload_guard_middleware import PayloadGuardMiddleware
 from app.middleware.rate_limit_middleware import RateLimitMiddleware
 from app.middleware.request_context_middleware import RequestContextMiddleware
@@ -59,12 +54,10 @@ app = FastAPI(
 register_presentation_public_paths()
 
 # Runtime order:
-# PresentationSecurity -> PresentationAuth -> RequestContext -> Tracing -> ApiKeyAuth -> Auth -> Membership -> ExternalPlatform -> Chaos -> RateLimit -> Observability -> PayloadGuard -> StructuredLogging
+# PresentationSecurity -> PresentationAuth -> RequestContext -> Tracing -> ApiKeyAuth -> Auth -> Membership -> ExternalPlatform -> RateLimit -> PayloadGuard -> StructuredLogging
 app.add_middleware(StructuredLoggingMiddleware)
 app.add_middleware(PayloadGuardMiddleware)
-app.add_middleware(ObservabilityMiddleware)
 app.add_middleware(RateLimitMiddleware)
-app.add_middleware(ChaosInjectionMiddleware)
 app.add_middleware(ExternalPlatformMiddleware)
 app.add_middleware(MembershipValidationMiddleware)
 app.add_middleware(AuthMiddleware)
@@ -83,7 +76,9 @@ async def on_startup() -> None:
     shutdown_manager.install_signal_handlers()
     initialize_tracing()
 
-    await run_in_threadpool(assert_database_schema_up_to_date, engine)
+    if settings.app_env in {"development", "test"}:
+        from app.core.migration_guard import assert_database_schema_up_to_date
+        await run_in_threadpool(assert_database_schema_up_to_date, engine)
 
     # Register background tasks in the in-process task registry.
     from app.tasks import webhook_tasks as _webhook_tasks  # noqa: F401
@@ -145,7 +140,5 @@ app.include_router(subscription_router)
 app.include_router(webhook_router)
 app.include_router(external_api_router)
 app.include_router(internal_tenant_router)
-app.include_router(internal_system_health_router)
-app.include_router(internal_security_router)
 app.include_router(presentation_router)
 app.mount("/admin/static", StaticFiles(directory="presentation/static"), name="admin_static")

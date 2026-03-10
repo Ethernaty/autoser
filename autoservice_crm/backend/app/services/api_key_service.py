@@ -67,7 +67,6 @@ class ApiKeyService(BaseService):
             self.serializer = serializer or JsonSerializer()
             self.cache = cache_backend or get_cache_backend()
             self.metrics = None
-            self._distributed_lock_manager = None
             self._logger = None
             return
 

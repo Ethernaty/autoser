@@ -7,7 +7,6 @@ from typing import Any
 from uuid import UUID
 
 from app.core.config import Settings, get_settings
-from app.core.circuit_breaker import AsyncCircuitBreaker
 
 
 class CacheBackend(ABC):
@@ -119,18 +118,12 @@ def _run_async(coro: Any) -> Any:
 @lru_cache(maxsize=1)
 def get_cache_backend(settings: Settings | None = None) -> CacheBackend:
     """Create and cache the configured cache backend instance."""
-    from app.core.cache.circuit_breaker_cache import CircuitBreakerCacheBackend
     from app.core.cache.memory_cache import MemoryCache
     from app.core.cache.redis_cache import RedisCache
 
     cfg = settings or get_settings()
     if cfg.cache_backend == "redis":
-        primary = RedisCache(redis_url=cfg.redis_url, key_prefix=cfg.cache_key_prefix)
-        breaker = AsyncCircuitBreaker(
-            failure_threshold=cfg.redis_circuit_breaker_failure_threshold,
-            recovery_timeout_seconds=cfg.redis_circuit_breaker_recovery_seconds,
-        )
-        return CircuitBreakerCacheBackend(primary=primary, breaker=breaker)
+        return RedisCache(redis_url=cfg.redis_url, key_prefix=cfg.cache_key_prefix)
     return MemoryCache(key_prefix=cfg.cache_key_prefix)
 
 
