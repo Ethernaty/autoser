@@ -45,8 +45,6 @@ class Settings(BaseSettings):
     client_cache_early_refresh_probability: float = Field(default=0.15, alias="CLIENT_CACHE_EARLY_REFRESH_PROBABILITY")
     negative_cache_ttl_seconds: int = Field(default=15, alias="NEGATIVE_CACHE_TTL_SECONDS")
     max_limit: int = Field(default=50, alias="MAX_LIMIT")
-    redis_circuit_breaker_failure_threshold: int = Field(default=5, alias="REDIS_CB_FAILURE_THRESHOLD")
-    redis_circuit_breaker_recovery_seconds: float = Field(default=30.0, alias="REDIS_CB_RECOVERY_SECONDS")
 
     rate_limit_enabled: bool = Field(default=True, alias="RATE_LIMIT_ENABLED")
     rate_limit_backend: str = Field(default="redis", alias="RATE_LIMIT_BACKEND")
@@ -99,27 +97,11 @@ class Settings(BaseSettings):
     rate_limit_burst_tolerance: int = Field(default=20, alias="RATE_LIMIT_BURST_TOLERANCE")
     rate_limit_redis_prefix: str = Field(default="crm:rl", alias="RATE_LIMIT_REDIS_PREFIX")
 
-    lock_backend: str = Field(default="redis", alias="LOCK_BACKEND")
-    lock_namespace: str = Field(default="crm:lock", alias="LOCK_NAMESPACE")
-
     event_stream_backend: str = Field(default="kafka", alias="EVENT_STREAM_BACKEND")
 
     tracing_enabled: bool = Field(default=True, alias="TRACING_ENABLED")
     tracing_exporter: str = Field(default="console", alias="TRACING_EXPORTER")
     tracing_service_name: str = Field(default="autoservice-crm-backend", alias="TRACING_SERVICE_NAME")
-
-    chaos_enabled: bool = Field(default=False, alias="CHAOS_ENABLED")
-    chaos_redis_failure_rate: float = Field(default=0.0, alias="CHAOS_REDIS_FAILURE_RATE")
-    chaos_db_latency_ms: int = Field(default=0, alias="CHAOS_DB_LATENCY_MS")
-    chaos_queue_delay_ms: int = Field(default=0, alias="CHAOS_QUEUE_DELAY_MS")
-    chaos_event_drop_rate: float = Field(default=0.0, alias="CHAOS_EVENT_DROP_RATE")
-    chaos_exception_rate: float = Field(default=0.0, alias="CHAOS_EXCEPTION_RATE")
-
-    slo_window_seconds: int = Field(default=3600, alias="SLO_WINDOW_SECONDS")
-    slo_latency_p95_ms: float = Field(default=800.0, alias="SLO_LATENCY_P95_MS")
-    slo_error_rate_target: float = Field(default=0.01, alias="SLO_ERROR_RATE_TARGET")
-    slo_queue_delay_p95_ms: float = Field(default=3000.0, alias="SLO_QUEUE_DELAY_P95_MS")
-    slo_webhook_success_target: float = Field(default=0.99, alias="SLO_WEBHOOK_SUCCESS_TARGET")
 
     shutdown_drain_timeout_seconds: float = Field(default=20.0, alias="SHUTDOWN_DRAIN_TIMEOUT_SECONDS")
     shutdown_force_exit_timeout_seconds: float = Field(default=30.0, alias="SHUTDOWN_FORCE_EXIT_TIMEOUT_SECONDS")
@@ -169,14 +151,6 @@ class Settings(BaseSettings):
         normalized = value.strip().lower()
         if normalized not in {"memory", "redis", "kafka"}:
             raise ValueError("JOB_QUEUE_BACKEND must be memory, redis, or kafka")
-        return normalized
-
-    @field_validator("lock_backend")
-    @classmethod
-    def validate_lock_backend(cls, value: str) -> str:
-        normalized = value.strip().lower()
-        if normalized not in {"redis", "noop"}:
-            raise ValueError("LOCK_BACKEND must be redis or noop")
         return normalized
 
     @field_validator("event_stream_backend")
@@ -318,32 +292,8 @@ class Settings(BaseSettings):
         if not self.rate_limit_redis_prefix.strip():
             raise ValueError("RATE_LIMIT_REDIS_PREFIX must not be empty")
 
-        if not self.lock_namespace.strip():
-            raise ValueError("LOCK_NAMESPACE must not be empty")
         if not self.tracing_service_name.strip():
             raise ValueError("TRACING_SERVICE_NAME must not be empty")
-
-        if self.chaos_redis_failure_rate < 0 or self.chaos_redis_failure_rate > 1:
-            raise ValueError("CHAOS_REDIS_FAILURE_RATE must be in range 0..1")
-        if self.chaos_db_latency_ms < 0 or self.chaos_db_latency_ms > 120000:
-            raise ValueError("CHAOS_DB_LATENCY_MS must be in range 0..120000")
-        if self.chaos_queue_delay_ms < 0 or self.chaos_queue_delay_ms > 120000:
-            raise ValueError("CHAOS_QUEUE_DELAY_MS must be in range 0..120000")
-        if self.chaos_event_drop_rate < 0 or self.chaos_event_drop_rate > 1:
-            raise ValueError("CHAOS_EVENT_DROP_RATE must be in range 0..1")
-        if self.chaos_exception_rate < 0 or self.chaos_exception_rate > 1:
-            raise ValueError("CHAOS_EXCEPTION_RATE must be in range 0..1")
-
-        if self.slo_window_seconds < 60 or self.slo_window_seconds > 86400:
-            raise ValueError("SLO_WINDOW_SECONDS must be in range 60..86400")
-        if self.slo_latency_p95_ms <= 0:
-            raise ValueError("SLO_LATENCY_P95_MS must be > 0")
-        if self.slo_error_rate_target <= 0 or self.slo_error_rate_target >= 1:
-            raise ValueError("SLO_ERROR_RATE_TARGET must be in range (0,1)")
-        if self.slo_queue_delay_p95_ms <= 0:
-            raise ValueError("SLO_QUEUE_DELAY_P95_MS must be > 0")
-        if self.slo_webhook_success_target <= 0 or self.slo_webhook_success_target > 1:
-            raise ValueError("SLO_WEBHOOK_SUCCESS_TARGET must be in range (0,1]")
 
         if self.shutdown_drain_timeout_seconds <= 0:
             raise ValueError("SHUTDOWN_DRAIN_TIMEOUT_SECONDS must be > 0")

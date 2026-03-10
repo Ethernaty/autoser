@@ -204,7 +204,6 @@ class RedisCache(CacheBackend):
         cache_key = self._full_key(key)
         started_at = time.perf_counter()
         try:
-            self._chaos.maybe_raise_redis_failure()
             async with self._client.pipeline(transaction=True) as pipe:
                 await pipe.incrby(cache_key, amount)
                 await pipe.ttl(cache_key)
@@ -231,7 +230,6 @@ class RedisCache(CacheBackend):
     async def ping(self) -> bool:
         started_at = time.perf_counter()
         try:
-            self._chaos.maybe_raise_redis_failure()
             result = bool(await self._client.ping())
             self._metrics.observe_redis_latency(
                 operation="ping",

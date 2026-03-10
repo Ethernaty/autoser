@@ -190,7 +190,6 @@ return 1
 
     async def ping(self) -> bool:
         try:
-            self._chaos.maybe_raise_redis_failure()
             return bool(await self._redis.ping())
         except Exception:
             return False
