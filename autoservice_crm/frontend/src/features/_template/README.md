@@ -1,0 +1,1 @@
+﻿# Feature template placeholder.

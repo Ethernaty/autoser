@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block title %}Subscriptions Admin{% endblock %}
+
+{% block content %}
+<section class="card">
+    <div class="subs-header">
+        <h1 style="margin: 0;">Subscriptions</h1>
+        <p class="muted" style="margin: 6px 0 0 0;">Track plan, renewal, payment status and cancellation.</p>
+    </div>
+
+    <form
+        id="subs-search-form"
+        class="subs-form"
+        method="get"
+        action="/admin/subscriptions"
+        hx-get="/admin/subscriptions/table"
+        hx-target="#subs-table-container"
+        hx-swap="innerHTML"
+        hx-push-url="true"
+        hx-trigger="submit, keyup changed delay:350ms from:#subs-search, change from:#subs-per-page"
+    >
+        <label for="subs-search">Search</label>
+        <input
+            id="subs-search"
+            name="q"
+            type="search"
+            value="{{ view.q }}"
+            placeholder="Tenant, slug, status, id"
+            autocomplete="off"
+        >
+
+        <label for="subs-per-page">Rows</label>
+        <select id="subs-per-page" name="per_page">
+            {% for size in [10, 20, 50] %}
+                <option value="{{ size }}" {% if view.per_page == size %}selected{% endif %}>{{ size }}</option>
+            {% endfor %}
+        </select>
+
+        <input type="hidden" name="page" value="1">
+        <button type="submit">Apply</button>
+    </form>
+
+    <div id="subs-table-container">
+        {% include "subscriptions_table.html" %}
+    </div>
+</section>
+
+<script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+<style>
+    .subs-header { margin-bottom: 14px; }
+    .subs-form {
+        display: grid;
+        gap: 8px;
+        grid-template-columns: 1fr 120px auto;
+        align-items: end;
+        margin-bottom: 14px;
+    }
+    .subs-form input,
+    .subs-form select {
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px;
+        font-size: 14px;
+    }
+    .subs-form button { height: 40px; }
+
+    .table-wrap {
+        width: 100%;
+        overflow-x: auto;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: #fff;
+    }
+    .subs-table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 920px;
+    }
+    .subs-table th,
+    .subs-table td {
+        text-align: left;
+        border-bottom: 1px solid #edf0f5;
+        padding: 10px 12px;
+        font-size: 14px;
+        vertical-align: top;
+    }
+    .subs-table th {
+        font-size: 12px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        background: #f9fbff;
+    }
+    .subs-table tr:last-child td { border-bottom: 0; }
+
+    .status-badge {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 3px 10px;
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+    }
+    .status-active { background: #e8f7ef; color: #117a3a; }
+    .status-trial { background: #eaf2ff; color: #1d4ed8; }
+    .status-past_due,
+    .status-cancel_scheduled { background: #fff4e5; color: #b54708; }
+    .status-canceled,
+    .status-suspended,
+    .status-unavailable { background: #fdebec; color: #b42318; }
+    .status-none { background: #eef2f7; color: #374151; }
+
+    .tenant-meta { color: var(--muted); font-size: 12px; }
+    .error {
+        border: 1px solid #fecaca;
+        background: #fff1f2;
+        color: #9f1239;
+        padding: 10px;
+        border-radius: 8px;
+        margin-bottom: 12px;
+    }
+    .action-btn {
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        color: #111827;
+        border-radius: 8px;
+        padding: 6px 10px;
+        cursor: pointer;
+        font-weight: 600;
+    }
+    .action-btn[disabled] {
+        cursor: not-allowed;
+        color: #9ca3af;
+        background: #f5f7fb;
+    }
+
+    .pagination {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 12px;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    .pager-actions { display: flex; gap: 8px; }
+    .pager-link,
+    .pager-disabled {
+        display: inline-block;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-size: 14px;
+        text-decoration: none;
+    }
+    .pager-link { color: var(--text); background: #fff; }
+    .pager-disabled { color: var(--muted); background: #f5f7fb; }
+
+    @media (max-width: 780px) {
+        .subs-form { grid-template-columns: 1fr; }
+    }
+</style>
+{% endblock %}

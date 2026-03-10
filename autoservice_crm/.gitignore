@@ -32,6 +32,8 @@ coverage/
 
 # DB
 *.sqlite
+*.sqlite3
+*.db
 
 # PIDs
 *.pid

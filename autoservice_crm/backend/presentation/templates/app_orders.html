@@ -1,0 +1,124 @@
+﻿{% extends "app_layout.html" %}
+{% import "components/table.html" as table %}
+
+{% block title %}Orders CRM{% endblock %}
+
+{% block app_content %}
+<form method="get" action="/app/orders" class="toolbar">
+    <div>
+        <label for="orders-q">Search</label>
+        <input id="orders-q" type="search" name="q" value="{{ view.q }}" placeholder="Description or client">
+    </div>
+    <div>
+        <label for="orders-status">Status</label>
+        <select id="orders-status" name="status">
+            <option value="" {% if not view.status_filter %}selected{% endif %}>All</option>
+            {% for status in view.status_options %}
+                <option value="{{ status }}" {% if view.status_filter == status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div>
+        <label for="orders-per-page">Rows</label>
+        <select id="orders-per-page" name="per_page">
+            {% for size in [10, 20, 50] %}
+                <option value="{{ size }}" {% if view.pagination.per_page == size %}selected{% endif %}>{{ size }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <input type="hidden" name="page" value="1">
+    <button type="submit">Apply</button>
+    {% if has_perm(current_user, 'work_orders', 'create') %}
+        <a class="action-link" href="/app/orders?q={{ view.q|urlencode }}&status={{ view.status_filter|urlencode }}&page={{ view.pagination.page }}&per_page={{ view.pagination.per_page }}&modal=create">New Order</a>
+    {% endif %}
+</form>
+
+{% call table.render_table(["Client", "Description", "Price", "Status", "Actions"]) %}
+    {% if view.rows %}
+        {% for row in view.rows %}
+            <tr>
+                <td><strong>{{ row.client_name }}</strong></td>
+                <td>{{ row.description }}</td>
+                <td>{{ row.price }}</td>
+                <td><span class="status-badge status-{{ row.status }}">{{ row.status }}</span></td>
+                <td>
+                    <div class="actions">
+                        {% if has_perm(current_user, 'work_orders', 'update') %}
+                            <a class="action-link" href="/app/orders?q={{ view.q|urlencode }}&status={{ view.status_filter|urlencode }}&page={{ view.pagination.page }}&per_page={{ view.pagination.per_page }}&modal=edit&edit_id={{ row.id }}">Edit</a>
+                        {% endif %}
+                        {% if has_perm(current_user, 'work_orders', 'delete') %}
+                            <form class="inline-form" method="post" action="/app/orders/{{ row.id }}/delete" onsubmit="return confirm('Delete this order?');">
+                                <input type="hidden" name="q" value="{{ view.q }}">
+                                <input type="hidden" name="status" value="{{ view.status_filter }}">
+                                <input type="hidden" name="page" value="{{ view.pagination.page }}">
+                                <input type="hidden" name="per_page" value="{{ view.pagination.per_page }}">
+                                <button type="submit" class="action-link action-danger">Delete</button>
+                            </form>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+        {% endfor %}
+    {% else %}
+        <tr><td colspan="5" class="muted">No orders found.</td></tr>
+    {% endif %}
+{% endcall %}
+
+{{ table.render_pagination(view.pagination) }}
+
+{% if view.modal_mode %}
+<div class="modal-backdrop">
+    <section class="modal-card">
+        <div class="modal-head">
+            <h3 style="margin: 0;">{{ 'Create Order' if view.modal_mode == 'create' else 'Edit Order' }}</h3>
+            <a class="action-link" href="{{ view.close_modal_url }}">Close</a>
+        </div>
+
+        {% if view.modal_error %}
+            <div class="error">{{ view.modal_error }}</div>
+        {% endif %}
+
+        {% if view.modal_mode == 'create' %}
+            <form method="post" action="/app/orders/create" class="modal-grid">
+        {% else %}
+            <form method="post" action="/app/orders/{{ view.edit_id }}/update" class="modal-grid">
+        {% endif %}
+            <input type="hidden" name="q" value="{{ view.q }}">
+            <input type="hidden" name="status" value="{{ view.status_filter }}">
+            <input type="hidden" name="page" value="{{ view.pagination.page }}">
+            <input type="hidden" name="per_page" value="{{ view.pagination.per_page }}">
+
+            <label>Client</label>
+            <select name="client_id" {% if view.modal_mode == 'edit' %}disabled{% endif %}>
+                {% for client_id, client_name in view.client_options %}
+                    <option value="{{ client_id }}" {% if view.modal_values.get('client_id', '') == client_id %}selected{% endif %}>{{ client_name }}</option>
+                {% endfor %}
+            </select>
+            {% if view.modal_mode == 'edit' %}
+                <input type="hidden" name="client_id" value="{{ view.modal_values.get('client_id', '') }}">
+            {% endif %}
+
+            <label>Description</label>
+            <input name="description" required maxlength="5000" value="{{ view.modal_values.get('description', '') }}">
+
+            <label>Price</label>
+            <input name="price" type="number" min="0.01" step="0.01" required value="{{ view.modal_values.get('price', '') }}">
+
+            <label>Status</label>
+            <select name="order_status">
+                {% for status in view.status_options %}
+                    <option value="{{ status }}" {% if view.modal_values.get('status', 'new') == status %}selected{% endif %}>{{ status }}</option>
+                {% endfor %}
+            </select>
+
+            <div class="modal-actions">
+                <a class="action-link" href="{{ view.close_modal_url }}">Cancel</a>
+                <button type="submit">{{ 'Create' if view.modal_mode == 'create' else 'Save' }}</button>
+            </div>
+        </form>
+    </section>
+</div>
+{% endif %}
+{% endblock %}
+
+

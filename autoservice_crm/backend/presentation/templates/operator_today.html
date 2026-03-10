@@ -1,0 +1,99 @@
+﻿{% extends "operator_layout.html" %}
+
+{% block operator_content %}
+<section class="operator-card" style="margin-bottom: 12px;">
+    <h1 class="operator-title">Today Schedule</h1>
+    <div class="operator-sub">{{ view.now_label }}</div>
+</section>
+
+<section class="operator-grid two" style="margin-bottom: 12px;">
+    <article class="operator-card">
+        <h2 style="margin-top: 0;">In progress</h2>
+        <div class="operator-order-list">
+            {% for order in view.in_progress %}
+            <article class="operator-order">
+                <div class="operator-order-head">
+                    <div>
+                        <strong>{{ order.client_name }}</strong>
+                        <div class="operator-sub">{{ order.description }}</div>
+                    </div>
+                    <span class="operator-chip in_progress">in_progress</span>
+                </div>
+                <div class="operator-order-actions">
+                    <form method="post" action="/app/operator/today/{{ order.id }}/ready">
+                        {{ csrf_input(request) }}
+                        <button class="operator-btn ok" type="submit">Ready</button>
+                    </form>
+                </div>
+            </article>
+            {% else %}
+            <div class="operator-sub">No active jobs.</div>
+            {% endfor %}
+        </div>
+    </article>
+
+    <article class="operator-card">
+        <h2 style="margin-top: 0;">Waiting</h2>
+        <div class="operator-order-list">
+            {% for order in view.waiting %}
+            <article class="operator-order {% if order.overdue %}overdue{% endif %}">
+                <div class="operator-order-head">
+                    <div>
+                        <strong>{{ order.client_name }}</strong>
+                        <div class="operator-sub">{{ order.description }}</div>
+                    </div>
+                    <span class="operator-chip new">new</span>
+                </div>
+                <div class="operator-order-actions">
+                    <form method="post" action="/app/operator/today/{{ order.id }}/start">
+                        {{ csrf_input(request) }}
+                        <button class="operator-btn secondary" type="submit">Start</button>
+                    </form>
+                </div>
+            </article>
+            {% else %}
+            <div class="operator-sub">No waiting jobs.</div>
+            {% endfor %}
+        </div>
+    </article>
+</section>
+
+<section class="operator-grid two">
+    <article class="operator-card">
+        <h2 style="margin-top: 0;">Overdue (3h+)</h2>
+        <div class="operator-order-list">
+            {% for order in view.overdue %}
+            <article class="operator-order overdue">
+                <strong>{{ order.client_name }}</strong>
+                <div class="operator-sub">{{ order.description }}</div>
+                <div class="operator-sub">{{ order.created_at.strftime('%d.%m.%Y %H:%M') }}</div>
+            </article>
+            {% else %}
+            <div class="operator-sub">No overdue jobs.</div>
+            {% endfor %}
+        </div>
+    </article>
+
+    <article class="operator-card">
+        <h2 style="margin-top: 0;">Ready</h2>
+        <div class="operator-order-list">
+            {% for order in view.ready %}
+            <article class="operator-order">
+                <div class="operator-order-head">
+                    <div>
+                        <strong>{{ order.client_name }}</strong>
+                        <div class="operator-sub">{{ order.description }}</div>
+                    </div>
+                    <span class="operator-chip completed">completed</span>
+                </div>
+                <div class="operator-order-actions">
+                    <a class="operator-link-btn" href="/app/operator/cash-desk">Cash desk</a>
+                </div>
+            </article>
+            {% else %}
+            <div class="operator-sub">No ready jobs.</div>
+            {% endfor %}
+        </div>
+    </article>
+</section>
+{% endblock %}

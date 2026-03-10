@@ -1,0 +1,151 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Admin{% endblock %}</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f4f6fb;
+            --card: #ffffff;
+            --text: #111827;
+            --muted: #6b7280;
+            --border: #dbe2ea;
+            --accent: #0f6fff;
+            --danger: #b42318;
+            --ok: #117a3a;
+            --warn: #b54708;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+        .layout {
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .brand {
+            font-size: 20px;
+            font-weight: 700;
+            text-decoration: none;
+            color: var(--text);
+        }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 20px;
+        }
+        .muted { color: var(--muted); }
+        .grid {
+            display: grid;
+            gap: 16px;
+        }
+        .grid.two {
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        }
+        .status-ok { color: var(--ok); font-weight: 600; }
+        .status-degraded { color: var(--warn); font-weight: 600; }
+        .status-down { color: var(--danger); font-weight: 600; }
+        label {
+            display: block;
+            font-size: 14px;
+            margin-bottom: 6px;
+        }
+        input {
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 12px;
+            font-size: 14px;
+        }
+        button {
+            border: 0;
+            border-radius: 8px;
+            background: var(--accent);
+            color: #fff;
+            padding: 10px 14px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        button.secondary {
+            background: #eef2f7;
+            color: #1f2937;
+            border: 1px solid var(--border);
+        }
+        .error {
+            border: 1px solid #fecaca;
+            background: #fff1f2;
+            color: #9f1239;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
+        .inline-form { margin: 0; }
+    </style>
+</head>
+<body>
+<div class="layout">
+    <div class="topbar">
+        <a href="/admin/dashboard" class="brand">AutoService Admin</a>
+        {% if current_user %}
+            <form class="inline-form" action="/admin/auth/logout" method="post">
+                {{ csrf_input(request) }}
+                <button class="secondary" type="submit">Logout</button>
+            </form>
+        {% endif %}
+    </div>
+
+    {% block content %}{% endblock %}
+</div>
+
+<script>
+(() => {
+    const readCookie = (name) => {
+        const escaped = name.replace(/[-.[$]{}()*+?^\\|]/g, '\\$&');
+        const match = document.cookie.match(new RegExp('(?:^|; )' + escaped + '=([^;]*)'));
+        return match ? decodeURIComponent(match[1]) : '';
+    };
+
+    const ensureCsrfFields = () => {
+        const token = readCookie('admin_csrf_token');
+        if (!token) {
+            return;
+        }
+        document.querySelectorAll('form[method="post"], form[method="POST"]').forEach((form) => {
+            if (form.querySelector('input[name="csrf_token"]')) {
+                return;
+            }
+            const hidden = document.createElement('input');
+            hidden.type = 'hidden';
+            hidden.name = 'csrf_token';
+            hidden.value = token;
+            form.appendChild(hidden);
+        });
+    };
+
+    ensureCsrfFields();
+
+    document.body.addEventListener('htmx:configRequest', (event) => {
+        const token = readCookie('admin_csrf_token');
+        if (!token) {
+            return;
+        }
+        event.detail.headers['X-CSRF-Token'] = token;
+    });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,59 @@
+﻿{% extends "operator_layout.html" %}
+
+{% block operator_content %}
+<section class="operator-card" style="margin-bottom: 12px;">
+    <h1 class="operator-title">Action Dashboard</h1>
+    <div class="operator-sub">{{ view.now_label }} | {{ current_user.user.email }}</div>
+    <div class="operator-actions" style="margin-top: 12px;">
+        <a class="operator-link-btn" href="/app/operator/new-order">Create new order</a>
+        <a class="operator-link-btn" href="/app/operator/today">Open today schedule</a>
+        <a class="operator-link-btn" href="/app/operator/client">Find client card</a>
+        <a class="operator-link-btn" href="/app/operator/cash-desk">Go to cash desk</a>
+    </div>
+</section>
+
+<section class="operator-grid two" style="margin-bottom: 12px;">
+    <article class="operator-card"><div class="operator-sub">In progress</div><div class="operator-kpi">{{ view.in_progress_count }}</div></article>
+    <article class="operator-card"><div class="operator-sub">Waiting</div><div class="operator-kpi">{{ view.waiting_count }}</div></article>
+    <article class="operator-card"><div class="operator-sub">Ready for pickup</div><div class="operator-kpi">{{ view.ready_count }}</div></article>
+    <article class="operator-card"><div class="operator-sub">Cash desk queue</div><div class="operator-kpi">{{ view.cash_count }}</div></article>
+</section>
+
+<section class="operator-card">
+    <h2 style="margin-top: 0;">Recent orders</h2>
+    <div class="operator-order-list">
+        {% for order in view.recent_orders %}
+            <article class="operator-order {% if order.overdue %}overdue{% endif %}">
+                <div class="operator-order-head">
+                    <div>
+                        <strong>{{ order.client_name }}</strong>
+                        <div class="operator-sub">{{ order.description }}</div>
+                        <div class="operator-sub">{{ order.created_at.strftime('%d.%m.%Y %H:%M') }}</div>
+                    </div>
+                    <div>
+                        <div><strong>{{ order.price }}</strong></div>
+                        <span class="operator-chip {{ order.status }}">{{ order.status }}</span>
+                    </div>
+                </div>
+                <div class="operator-order-actions">
+                    {% if order.status != 'in_progress' %}
+                    <form method="post" action="/app/operator/today/{{ order.id }}/start">
+                        {{ csrf_input(request) }}
+                        <button type="submit" class="operator-btn secondary">Start work</button>
+                    </form>
+                    {% endif %}
+                    {% if order.status != 'completed' %}
+                    <form method="post" action="/app/operator/today/{{ order.id }}/ready">
+                        {{ csrf_input(request) }}
+                        <button type="submit" class="operator-btn ok">Mark ready</button>
+                    </form>
+                    {% endif %}
+                    <a class="operator-link-btn" href="/app/operator/cash-desk">Cash desk</a>
+                </div>
+            </article>
+        {% else %}
+            <div class="operator-sub">No orders yet.</div>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

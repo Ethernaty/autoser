@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard{% endblock %}
+
+{% block content %}
+<div class="grid two">
+    <section class="card">
+        <h2 style="margin-top: 0;">System Status</h2>
+        <p>
+            Overall:
+            <span class="status-{{ system_status.status }}">{{ system_status.status }}</span>
+        </p>
+        <p>Database: <strong>{{ system_status.db }}</strong></p>
+        <p>Redis: <strong>{{ system_status.redis }}</strong></p>
+        <p class="muted">Checked at: {{ system_status.checked_at }}</p>
+    </section>
+
+    <section class="card">
+        <h2 style="margin-top: 0;">Current User</h2>
+        <p>Email: <strong>{{ current_user.user.email }}</strong></p>
+        <p>Tenant: <strong>{{ current_user.tenant.name }}</strong> ({{ current_user.tenant.slug }})</p>
+        <p>Role: <strong>{{ current_user.role }}</strong></p>
+        <p class="muted">User ID: {{ current_user.user.id }}</p>
+    </section>
+</div>
+
+<section class="card" style="margin-top: 16px;">
+    <h2 style="margin-top: 0;">Server Time</h2>
+    <p><strong>{{ server_time }}</strong></p>
+</section>
+{% endblock %}

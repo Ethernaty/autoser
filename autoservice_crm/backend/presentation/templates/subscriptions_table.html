@@ -1,0 +1,82 @@
+{% if view.action_error %}
+    <div class="error">{{ view.action_error }}</div>
+{% endif %}
+
+<div class="table-wrap">
+    <table class="subs-table">
+        <thead>
+        <tr>
+            <th>Tenant</th>
+            <th>Plan</th>
+            <th>Price</th>
+            <th>Renewal Date</th>
+            <th>Payment Status</th>
+            <th>Action</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% if view.rows %}
+            {% for row in view.rows %}
+                <tr>
+                    <td>
+                        <strong>{{ row.tenant_name }}</strong>
+                        <div class="tenant-meta">{{ row.tenant_slug }}</div>
+                    </td>
+                    <td>{{ row.plan_name }}</td>
+                    <td>{{ row.plan_price }}</td>
+                    <td>{{ row.renewal_date.strftime("%Y-%m-%d %H:%M:%S") if row.renewal_date else "-" }}</td>
+                    <td><span class="status-badge status-{{ row.payment_status }}">{{ row.payment_status }}</span></td>
+                    <td>
+                        <button
+                            class="action-btn"
+                            type="button"
+                            {% if not row.can_cancel %}disabled{% endif %}
+                            hx-post="/admin/subscriptions/{{ row.tenant_id }}/cancel?q={{ view.q|urlencode }}&per_page={{ view.per_page }}&page={{ view.page }}"
+                            hx-target="#subs-table-container"
+                            hx-swap="innerHTML"
+                            hx-confirm="Cancel subscription for tenant '{{ row.tenant_name }}'?"
+                        >
+                            Cancel
+                        </button>
+                    </td>
+                </tr>
+            {% endfor %}
+        {% else %}
+            <tr>
+                <td colspan="6" class="muted">No subscriptions found.</td>
+            </tr>
+        {% endif %}
+        </tbody>
+    </table>
+</div>
+
+<div class="pagination">
+    <div class="muted">Page {{ view.page }}</div>
+    <div class="pager-actions">
+        {% if view.has_prev %}
+            <a
+                class="pager-link"
+                href="/admin/subscriptions?q={{ view.q|urlencode }}&per_page={{ view.per_page }}&page={{ view.page - 1 }}"
+                hx-get="/admin/subscriptions/table?q={{ view.q|urlencode }}&per_page={{ view.per_page }}&page={{ view.page - 1 }}"
+                hx-target="#subs-table-container"
+                hx-swap="innerHTML"
+                hx-push-url="true"
+            >Previous</a>
+        {% else %}
+            <span class="pager-disabled">Previous</span>
+        {% endif %}
+
+        {% if view.has_next %}
+            <a
+                class="pager-link"
+                href="/admin/subscriptions?q={{ view.q|urlencode }}&per_page={{ view.per_page }}&page={{ view.page + 1 }}"
+                hx-get="/admin/subscriptions/table?q={{ view.q|urlencode }}&per_page={{ view.per_page }}&page={{ view.page + 1 }}"
+                hx-target="#subs-table-container"
+                hx-swap="innerHTML"
+                hx-push-url="true"
+            >Next</a>
+        {% else %}
+            <span class="pager-disabled">Next</span>
+        {% endif %}
+    </div>
+</div>

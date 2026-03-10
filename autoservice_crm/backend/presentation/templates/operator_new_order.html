@@ -1,0 +1,56 @@
+﻿{% extends "operator_layout.html" %}
+
+{% block operator_content %}
+<section class="operator-card" style="margin-bottom: 12px;">
+    <h1 class="operator-title">New Order</h1>
+    <div class="operator-sub">Fast flow: find client, describe work, set price, save.</div>
+</section>
+
+<section class="operator-card" style="margin-bottom: 12px;">
+    <form method="get" action="/app/operator/new-order" class="operator-grid">
+        <div class="operator-field">
+            <label for="quick-phone">Phone or client name</label>
+            <input id="quick-phone" class="operator-input" name="phone" value="{{ view.phone }}" placeholder="+1 555 ..." />
+        </div>
+        <button class="operator-btn secondary" type="submit">Find client</button>
+    </form>
+
+    {% if view.suggestions %}
+        <div class="operator-sub" style="margin: 10px 0 6px 0;">Matches</div>
+        <div class="operator-actions">
+            {% for client in view.suggestions %}
+                <a class="operator-link-btn" href="/app/operator/new-order?phone={{ view.phone|urlencode }}&client_name={{ view.client_name|urlencode }}&description={{ view.description|urlencode }}&price={{ view.price|urlencode }}&selected_client_id={{ client.id }}">{{ client.name }} ({{ client.phone }})</a>
+            {% endfor %}
+        </div>
+    {% endif %}
+</section>
+
+<section class="operator-card">
+    <form method="post" action="/app/operator/new-order" class="operator-grid">
+        {{ csrf_input(request) }}
+        <input type="hidden" name="selected_client_id" value="{{ view.selected_client_id or '' }}" />
+
+        <div class="operator-field">
+            <label for="phone">Phone</label>
+            <input id="phone" class="operator-input" name="phone" required value="{{ view.phone }}" />
+        </div>
+
+        <div class="operator-field">
+            <label for="client_name">Client name (optional)</label>
+            <input id="client_name" class="operator-input" name="client_name" value="{{ view.client_name }}" />
+        </div>
+
+        <div class="operator-field">
+            <label for="description">Work description</label>
+            <textarea id="description" class="operator-textarea" name="description" required>{{ view.description }}</textarea>
+        </div>
+
+        <div class="operator-field">
+            <label for="price">Price</label>
+            <input id="price" class="operator-input" name="price" required value="{{ view.price }}" placeholder="1500.00" />
+        </div>
+
+        <button class="operator-btn" type="submit">Create order</button>
+    </form>
+</section>
+{% endblock %}

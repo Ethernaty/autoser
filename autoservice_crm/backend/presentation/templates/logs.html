@@ -1,0 +1,263 @@
+{% extends "base.html" %}
+
+{% block title %}System Logs{% endblock %}
+
+{% block content %}
+<section class="card monitor-card">
+    <div class="monitor-head">
+        <h1 style="margin: 0;">{{ title }}</h1>
+        <p class="muted" style="margin: 6px 0 0 0;">Latest tenant-scoped monitoring logs.</p>
+    </div>
+
+    <form
+        id="monitor-filter-form"
+        method="get"
+        action="{{ page_route }}"
+        class="monitor-filters"
+        hx-get="{{ table_route }}"
+        hx-target="#monitor-table-container"
+        hx-swap="innerHTML"
+        hx-push-url="true"
+        hx-trigger="submit, keyup changed delay:450ms from:#filter-search, change from:#filter-level, change from:#filter-per-page"
+    >
+        <label for="filter-search">Search</label>
+        <input id="filter-search" name="q" type="search" value="{{ view.q }}" placeholder="Search in action/message/metadata">
+
+        {% if allow_level_filter %}
+            <label for="filter-level">Level</label>
+            <select id="filter-level" name="level">
+                <option value="" {% if not view.level %}selected{% endif %}>All</option>
+                <option value="DEBUG" {% if view.level == 'DEBUG' %}selected{% endif %}>DEBUG</option>
+                <option value="INFO" {% if view.level == 'INFO' %}selected{% endif %}>INFO</option>
+                <option value="WARNING" {% if view.level == 'WARNING' %}selected{% endif %}>WARNING</option>
+                <option value="ERROR" {% if view.level == 'ERROR' %}selected{% endif %}>ERROR</option>
+                <option value="CRITICAL" {% if view.level == 'CRITICAL' %}selected{% endif %}>CRITICAL</option>
+            </select>
+        {% else %}
+            <input type="hidden" name="level" value="ERROR">
+        {% endif %}
+
+        <label for="filter-per-page">Rows</label>
+        <select id="filter-per-page" name="per_page">
+            {% for size in [25, 50, 100] %}
+                <option value="{{ size }}" {% if view.per_page == size %}selected{% endif %}>{{ size }}</option>
+            {% endfor %}
+        </select>
+
+        <input type="hidden" name="page" value="1">
+        <input type="hidden" id="auto-refresh-input" name="auto_refresh" value="{{ 'true' if view.auto_refresh else 'false' }}">
+
+        <label class="toggle-wrap" for="auto-refresh-toggle">
+            <input id="auto-refresh-toggle" type="checkbox" {% if view.auto_refresh %}checked{% endif %}>
+            Auto refresh
+        </label>
+
+        <button type="submit">Apply</button>
+    </form>
+
+    <div id="monitor-table-container">
+        {% include "monitoring_table.html" %}
+    </div>
+</section>
+
+<dialog id="stacktrace-dialog" class="stacktrace-dialog">
+    <form method="dialog" class="stacktrace-header">
+        <strong>Stacktrace</strong>
+        <button value="close" class="close-btn">Close</button>
+    </form>
+    <pre id="stacktrace-content"></pre>
+</dialog>
+
+<script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+<script>
+(() => {
+    const form = document.getElementById('monitor-filter-form');
+    const toggle = document.getElementById('auto-refresh-toggle');
+    const toggleInput = document.getElementById('auto-refresh-input');
+    const stackDialog = document.getElementById('stacktrace-dialog');
+    const stackContent = document.getElementById('stacktrace-content');
+    let timer = null;
+
+    const syncToggle = () => {
+        toggleInput.value = toggle.checked ? 'true' : 'false';
+    };
+
+    const scheduleRefresh = () => {
+        if (timer) {
+            clearInterval(timer);
+            timer = null;
+        }
+        if (!toggle.checked) {
+            return;
+        }
+        timer = setInterval(() => {
+            syncToggle();
+            form.requestSubmit();
+        }, 15000);
+    };
+
+    toggle.addEventListener('change', () => {
+        syncToggle();
+        scheduleRefresh();
+    });
+
+    document.body.addEventListener('click', (event) => {
+        const button = event.target.closest('.stacktrace-btn');
+        if (!button) {
+            return;
+        }
+        const stacktrace = button.getAttribute('data-stacktrace') || '';
+        stackContent.textContent = stacktrace || 'No stacktrace available.';
+        if (typeof stackDialog.showModal === 'function') {
+            stackDialog.showModal();
+        }
+    });
+
+    syncToggle();
+    scheduleRefresh();
+})();
+</script>
+
+<style>
+.monitor-card { overflow: hidden; }
+.monitor-head { margin-bottom: 14px; }
+.monitor-filters {
+    display: grid;
+    grid-template-columns: 1fr 160px 120px auto auto;
+    gap: 8px;
+    align-items: end;
+    margin-bottom: 14px;
+}
+.monitor-filters input,
+.monitor-filters select {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 14px;
+}
+.toggle-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 10px;
+    white-space: nowrap;
+}
+.toggle-wrap input { width: auto; margin: 0; }
+.monitor-filters button { height: 40px; }
+.stacktrace-dialog {
+    width: min(900px, 95vw);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0;
+}
+.stacktrace-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+}
+.stacktrace-dialog pre {
+    margin: 0;
+    padding: 14px;
+    max-height: 70vh;
+    overflow: auto;
+    white-space: pre-wrap;
+    font-size: 12px;
+    line-height: 1.4;
+    background: #0f172a;
+    color: #e2e8f0;
+}
+.close-btn {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+    color: #111827;
+    padding: 6px 10px;
+}
+.table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #fff;
+}
+.monitor-table {
+    width: 100%;
+    min-width: 980px;
+    border-collapse: collapse;
+}
+.monitor-table th,
+.monitor-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #edf0f5;
+    text-align: left;
+    vertical-align: top;
+    font-size: 14px;
+}
+.monitor-table th {
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    background: #f9fbff;
+}
+.monitor-table tr:last-child td { border-bottom: 0; }
+.log-level {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-weight: 700;
+}
+.level-debug { background: #eef2f7; color: #334155; }
+.level-info { background: #eaf2ff; color: #1d4ed8; }
+.level-warning { background: #fff4e5; color: #b54708; }
+.level-error,
+.level-critical { background: #fdebec; color: #b42318; }
+.log-message {
+    max-width: 380px;
+    word-break: break-word;
+}
+.tiny {
+    font-size: 12px;
+    color: var(--muted);
+}
+.stacktrace-btn {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+    color: #111827;
+    padding: 6px 10px;
+}
+.pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 12px;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.pager-actions {
+    display: flex;
+    gap: 8px;
+}
+.pager-link,
+.pager-disabled {
+    display: inline-block;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 14px;
+    text-decoration: none;
+}
+.pager-link { color: var(--text); background: #fff; }
+.pager-disabled { color: var(--muted); background: #f5f7fb; }
+@media (max-width: 920px) {
+    .monitor-filters {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+{% endblock %}

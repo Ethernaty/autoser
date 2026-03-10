@@ -1,0 +1,85 @@
+﻿{% extends "base.html" %}
+
+{% block title %}Operator Workspace{% endblock %}
+
+{% block content %}
+<section class="operator-shell">
+    {% if error %}
+        <div class="operator-alert operator-alert-error">{{ error }}</div>
+    {% endif %}
+    {% if ok %}
+        <div class="operator-alert operator-alert-ok">{{ ok }}</div>
+    {% endif %}
+
+    {% block operator_content %}{% endblock %}
+</section>
+
+<nav class="operator-nav" aria-label="Operator navigation">
+    <a href="/app/operator/dashboard" class="operator-nav-item {% if active_screen == 'dashboard' %}is-active{% endif %}">Dashboard</a>
+    <a href="/app/operator/new-order" class="operator-nav-item {% if active_screen == 'new_order' %}is-active{% endif %}">New order</a>
+    <a href="/app/operator/today" class="operator-nav-item {% if active_screen == 'today' %}is-active{% endif %}">Today</a>
+    <a href="/app/operator/client" class="operator-nav-item {% if active_screen == 'client' %}is-active{% endif %}">Client</a>
+    <a href="/app/operator/cash-desk" class="operator-nav-item {% if active_screen == 'cash_desk' %}is-active{% endif %}">Cash desk</a>
+</nav>
+
+<style>
+.operator-shell { padding-bottom: 88px; }
+.operator-grid { display: grid; gap: 12px; }
+.operator-grid.two { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.operator-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+.operator-title { margin: 0 0 8px 0; font-size: 22px; line-height: 1.2; }
+.operator-kpi { font-size: 28px; font-weight: 800; }
+.operator-actions { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.operator-btn, .operator-link-btn {
+    min-height: 58px; border-radius: 12px; border: 1px solid var(--border);
+    padding: 10px 14px; font-size: 18px; font-weight: 700;
+    display: inline-flex; align-items: center; justify-content: center;
+    text-decoration: none; cursor: pointer;
+}
+.operator-btn { background: var(--accent); color: #fff; border-color: #0b5ed7; }
+.operator-btn.secondary, .operator-link-btn { background: #f8fbff; color: var(--text); }
+.operator-btn.warn { background: #b54708; border-color: #8f3906; }
+.operator-btn.ok { background: #137333; border-color: #0f5b29; }
+.operator-field { display: grid; gap: 6px; }
+.operator-input, .operator-textarea {
+    width: 100%; border: 1px solid var(--border); border-radius: 12px; padding: 13px; font-size: 18px;
+}
+.operator-textarea { min-height: 100px; resize: vertical; }
+.operator-sub { font-size: 14px; color: var(--muted); }
+.operator-chip { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; background: #eef2f7; color: #1f2937; }
+.operator-chip.new { background: #eaf2ff; color: #1d4ed8; }
+.operator-chip.in_progress { background: #fff4e5; color: #b54708; }
+.operator-chip.completed { background: #dcfce7; color: #166534; }
+.operator-chip.canceled { background: #fee2e2; color: #991b1b; }
+.operator-alert { border-radius: 12px; padding: 12px; margin-bottom: 10px; font-weight: 600; }
+.operator-alert-error { background: #fff1f2; border: 1px solid #fecaca; color: #9f1239; }
+.operator-alert-ok { background: #ecfdf3; border: 1px solid #bbf7d0; color: #14532d; }
+.operator-order-list { display: grid; gap: 10px; }
+.operator-order { border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: #fff; }
+.operator-order.overdue { border-color: #fb923c; background: #fff7ed; }
+.operator-order-head { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
+.operator-order-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.operator-order-actions form { margin: 0; }
+.operator-nav {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    background: #fff; border-top: 1px solid var(--border); z-index: 30;
+}
+.operator-nav-item { text-align: center; text-decoration: none; color: var(--text); font-size: 14px; font-weight: 700; padding: 12px 6px; }
+.operator-nav-item.is-active { background: #eaf2ff; color: #0f4ec7; }
+.operator-inline-search {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: minmax(180px, 1fr) auto;
+}
+.operator-inline-search button {
+    min-width: 130px;
+}
+@media (max-width: 700px) {
+    .operator-btn, .operator-link-btn { font-size: 20px; min-height: 62px; }
+    .operator-inline-search {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+{% endblock %}

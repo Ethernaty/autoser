@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}Tenants Admin{% endblock %}
+
+{% block content %}
+<section class="card">
+    <div class="tenants-header">
+        <h1 style="margin: 0;">Tenants</h1>
+        <p class="muted" style="margin: 6px 0 0 0;">Search, inspect status, and review subscription plan.</p>
+    </div>
+
+    <form
+        id="tenant-search-form"
+        class="tenants-form"
+        method="get"
+        action="/admin/tenants"
+        hx-get="/admin/tenants/table"
+        hx-target="#tenants-table-container"
+        hx-swap="innerHTML"
+        hx-push-url="true"
+        hx-trigger="submit, keyup changed delay:350ms from:#tenant-search, change from:#tenant-per-page"
+    >
+        <label for="tenant-search">Search</label>
+        <input
+            id="tenant-search"
+            name="q"
+            type="search"
+            value="{{ view.q }}"
+            placeholder="Name, slug, id, status"
+            autocomplete="off"
+        >
+
+        <label for="tenant-per-page">Rows</label>
+        <select id="tenant-per-page" name="per_page">
+            {% for size in [10, 20, 50] %}
+                <option value="{{ size }}" {% if view.per_page == size %}selected{% endif %}>{{ size }}</option>
+            {% endfor %}
+        </select>
+
+        <input type="hidden" name="page" value="1">
+        <button type="submit">Apply</button>
+    </form>
+
+    <div id="tenants-table-container">
+        {% include "tenants_table.html" %}
+    </div>
+</section>
+
+<script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+<style>
+    .tenants-header { margin-bottom: 14px; }
+    .tenants-form {
+        display: grid;
+        gap: 8px;
+        grid-template-columns: 1fr 120px auto;
+        align-items: end;
+        margin-bottom: 14px;
+    }
+    .tenants-form input,
+    .tenants-form select {
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px;
+        font-size: 14px;
+    }
+    .tenants-form button {
+        height: 40px;
+    }
+    .table-wrap {
+        width: 100%;
+        overflow-x: auto;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: #fff;
+    }
+    .tenants-table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 760px;
+    }
+    .tenants-table th,
+    .tenants-table td {
+        text-align: left;
+        border-bottom: 1px solid #edf0f5;
+        padding: 10px 12px;
+        font-size: 14px;
+        vertical-align: top;
+    }
+    .tenants-table th {
+        font-size: 12px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        background: #f9fbff;
+    }
+    .tenants-table tr:last-child td {
+        border-bottom: 0;
+    }
+    .status-badge {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 3px 10px;
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+    }
+    .status-active { background: #e8f7ef; color: #117a3a; }
+    .status-suspended { background: #fff4e5; color: #b54708; }
+    .status-disabled,
+    .status-deleted { background: #fdebec; color: #b42318; }
+    .pagination {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 12px;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    .pager-actions {
+        display: flex;
+        gap: 8px;
+    }
+    .pager-link,
+    .pager-disabled {
+        display: inline-block;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-size: 14px;
+        text-decoration: none;
+    }
+    .pager-link { color: var(--text); background: #fff; }
+    .pager-disabled { color: var(--muted); background: #f5f7fb; }
+    .tenant-meta { color: var(--muted); font-size: 12px; }
+
+    @media (max-width: 740px) {
+        .tenants-form {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}

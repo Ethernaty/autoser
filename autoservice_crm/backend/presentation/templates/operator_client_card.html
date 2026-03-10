@@ -1,0 +1,57 @@
+﻿{% extends "operator_layout.html" %}
+
+{% block operator_content %}
+<section class="operator-card" style="margin-bottom: 12px;">
+    <h1 class="operator-title">Client Card</h1>
+    <form method="get" action="/app/operator/client" class="operator-inline-search" style="margin-top: 12px;">
+        <input class="operator-input" type="search" name="q" value="{{ view.query }}" placeholder="Phone, name, email" />
+        <button class="operator-btn secondary" type="submit">Search</button>
+    </form>
+</section>
+
+{% if view.matches %}
+<section class="operator-card" style="margin-bottom: 12px;">
+    <h2 style="margin-top: 0;">Matches</h2>
+    <div class="operator-actions">
+        {% for client in view.matches %}
+            <a class="operator-link-btn" href="/app/operator/client?client_id={{ client.id }}&q={{ view.query|urlencode }}">{{ client.name }} ({{ client.phone }})</a>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+<section class="operator-card">
+    {% if view.selected_client %}
+        <h2 style="margin-top: 0;">{{ view.selected_client.name }}</h2>
+        <div class="operator-sub">Phone: {{ view.selected_client.phone }}</div>
+        <div class="operator-sub">Email: {{ view.selected_client.email or '-' }}</div>
+        <div class="operator-sub" style="margin-bottom: 12px;">Comment: {{ view.selected_client.comment or '-' }}</div>
+
+        <div class="operator-actions" style="margin-bottom: 12px;">
+            <a class="operator-link-btn" href="/app/operator/new-order?phone={{ view.selected_client.phone|urlencode }}&client_name={{ view.selected_client.name|urlencode }}&selected_client_id={{ view.selected_client.id }}">Create order for this client</a>
+        </div>
+
+        <h3 style="margin: 0 0 8px 0;">Order history</h3>
+        <div class="operator-order-list">
+            {% for order in view.history_orders %}
+            <article class="operator-order {% if order.overdue %}overdue{% endif %}">
+                <div class="operator-order-head">
+                    <div>
+                        <strong>{{ order.description }}</strong>
+                        <div class="operator-sub">{{ order.created_at.strftime('%d.%m.%Y %H:%M') }}</div>
+                    </div>
+                    <div>
+                        <div><strong>{{ order.price }}</strong></div>
+                        <span class="operator-chip {{ order.status }}">{{ order.status }}</span>
+                    </div>
+                </div>
+            </article>
+            {% else %}
+            <div class="operator-sub">No orders for this client.</div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="operator-sub">Select a client to see the card and history.</div>
+    {% endif %}
+</section>
+{% endblock %}

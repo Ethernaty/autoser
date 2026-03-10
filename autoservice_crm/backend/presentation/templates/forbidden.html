@@ -1,0 +1,32 @@
+﻿{% extends "base.html" %}
+
+{% block title %}Forbidden{% endblock %}
+
+{% block content %}
+<section class="card" style="max-width: 720px; margin: 30px auto;">
+    <h1 style="margin-top: 0;">Access Forbidden</h1>
+    <p class="muted">You are authenticated, but this action is not permitted for your role.</p>
+
+    <div class="error" style="margin-top: 14px;">{{ reason }}</div>
+
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;">
+        <a class="action-link" href="/admin/dashboard">Go to Dashboard</a>
+        <a class="action-link" href="/app/clients">Go to CRM Panel</a>
+        {% if next_path %}
+            <a class="action-link" href="{{ next_path }}">Try Again</a>
+        {% endif %}
+    </div>
+</section>
+
+<style>
+.action-link {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 12px;
+    text-decoration: none;
+    color: var(--text);
+    background: #fff;
+    font-size: 14px;
+}
+</style>
+{% endblock %}

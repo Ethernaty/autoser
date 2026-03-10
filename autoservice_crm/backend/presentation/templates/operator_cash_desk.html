@@ -1,0 +1,38 @@
+﻿{% extends "operator_layout.html" %}
+
+{% block operator_content %}
+<section class="operator-card" style="margin-bottom: 12px;">
+    <h1 class="operator-title">Cash Desk</h1>
+    <div class="operator-sub">{{ view.now_label }}</div>
+    <div class="operator-kpi" style="margin-top: 8px;">Total due: {{ view.total_due }}</div>
+</section>
+
+<section class="operator-card">
+    <h2 style="margin-top: 0;">Ready for payment</h2>
+    <div class="operator-order-list">
+        {% for order in view.rows %}
+        <article class="operator-order">
+            <div class="operator-order-head">
+                <div>
+                    <strong>{{ order.client_name }}</strong>
+                    <div class="operator-sub">{{ order.description }}</div>
+                    <div class="operator-sub">{{ order.created_at.strftime('%d.%m.%Y %H:%M') }}</div>
+                </div>
+                <div>
+                    <div><strong>{{ order.price }}</strong></div>
+                    <span class="operator-chip completed">completed</span>
+                </div>
+            </div>
+            <div class="operator-order-actions">
+                <form method="post" action="/app/operator/cash-desk/{{ order.id }}/pay" onsubmit="return confirm('Confirm payment?');">
+                    {{ csrf_input(request) }}
+                    <button class="operator-btn" type="submit">Confirm payment</button>
+                </form>
+            </div>
+        </article>
+        {% else %}
+        <div class="operator-sub">No orders in cash desk queue.</div>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

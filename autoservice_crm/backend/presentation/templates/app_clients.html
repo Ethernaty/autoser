@@ -1,0 +1,104 @@
+﻿{% extends "app_layout.html" %}
+{% import "components/table.html" as table %}
+
+{% block title %}Clients CRM{% endblock %}
+
+{% block app_content %}
+<form method="get" action="/app/clients" class="toolbar">
+    <div>
+        <label for="clients-q">Search</label>
+        <input id="clients-q" type="search" name="q" value="{{ view.q }}" placeholder="Name, phone, email">
+    </div>
+    <div>
+        <label for="clients-per-page">Rows</label>
+        <select id="clients-per-page" name="per_page">
+            {% for size in [10, 20, 50] %}
+                <option value="{{ size }}" {% if view.pagination.per_page == size %}selected{% endif %}>{{ size }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <input type="hidden" name="page" value="1">
+    <button type="submit">Apply</button>
+    {% if has_perm(current_user, 'clients', 'create') %}
+        <a class="action-link" href="/app/clients?q={{ view.q|urlencode }}&page={{ view.pagination.page }}&per_page={{ view.pagination.per_page }}&modal=create">New Client</a>
+    {% endif %}
+</form>
+
+{% call table.render_table(["Name", "Phone", "Email", "Comment", "Actions"]) %}
+    {% if view.rows %}
+        {% for row in view.rows %}
+            <tr>
+                <td><strong>{{ row.name }}</strong></td>
+                <td>{{ row.phone }}</td>
+                <td>{{ row.email or '-' }}</td>
+                <td>{{ row.comment or '-' }}</td>
+                <td>
+                    <div class="actions">
+                        {% if has_perm(current_user, 'clients', 'update') %}
+                            <a class="action-link" href="/app/clients?q={{ view.q|urlencode }}&page={{ view.pagination.page }}&per_page={{ view.pagination.per_page }}&modal=edit&edit_id={{ row.id }}">Edit</a>
+                        {% endif %}
+                        {% if has_perm(current_user, 'clients', 'delete') %}
+                            <form class="inline-form" method="post" action="/app/clients/{{ row.id }}/delete" onsubmit="return confirm('Delete this client?');">
+                                <input type="hidden" name="q" value="{{ view.q }}">
+                                <input type="hidden" name="page" value="{{ view.pagination.page }}">
+                                <input type="hidden" name="per_page" value="{{ view.pagination.per_page }}">
+                                <button type="submit" class="action-link action-danger">Delete</button>
+                            </form>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+        {% endfor %}
+    {% else %}
+        <tr><td colspan="5" class="muted">No clients found.</td></tr>
+    {% endif %}
+{% endcall %}
+
+{{ table.render_pagination(view.pagination) }}
+
+{% if view.modal_mode %}
+<div class="modal-backdrop">
+    <section class="modal-card">
+        <div class="modal-head">
+            <h3 style="margin: 0;">{{ 'Create Client' if view.modal_mode == 'create' else 'Edit Client' }}</h3>
+            <a class="action-link" href="{{ view.close_modal_url }}">Close</a>
+        </div>
+
+        {% if view.modal_error %}
+            <div class="error">{{ view.modal_error }}</div>
+        {% endif %}
+
+        {% if view.modal_mode == 'create' %}
+            <form method="post" action="/app/clients/create" class="modal-grid">
+        {% else %}
+            <form method="post" action="/app/clients/{{ view.edit_id }}/update" class="modal-grid">
+        {% endif %}
+            <input type="hidden" name="q" value="{{ view.q }}">
+            <input type="hidden" name="page" value="{{ view.pagination.page }}">
+            <input type="hidden" name="per_page" value="{{ view.pagination.per_page }}">
+            {% if view.modal_mode == 'edit' %}
+                <input type="hidden" name="version" value="{{ view.modal_values.get('version', '') }}">
+            {% endif %}
+
+            <label>Name</label>
+            <input name="name" required maxlength="200" value="{{ view.modal_values.get('name', '') }}">
+
+            <label>Phone</label>
+            <input name="phone" required maxlength="20" value="{{ view.modal_values.get('phone', '') }}">
+
+            <label>Email</label>
+            <input name="email" type="email" value="{{ view.modal_values.get('email', '') }}">
+
+            <label>Comment</label>
+            <input name="comment" maxlength="5000" value="{{ view.modal_values.get('comment', '') }}">
+
+            <div class="modal-actions">
+                <a class="action-link" href="{{ view.close_modal_url }}">Cancel</a>
+                <button type="submit">{{ 'Create' if view.modal_mode == 'create' else 'Save' }}</button>
+            </div>
+        </form>
+    </section>
+</div>
+{% endif %}
+{% endblock %}
+

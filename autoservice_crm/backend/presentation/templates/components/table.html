@@ -1,0 +1,35 @@
+﻿{% macro render_table(headers, empty_message='No data available.') -%}
+<div class="table-wrap">
+    <table class="data-table">
+        <thead>
+        <tr>
+            {% for header in headers %}
+                <th>{{ header }}</th>
+            {% endfor %}
+        </tr>
+        </thead>
+        <tbody>
+        {{ caller() }}
+        </tbody>
+    </table>
+</div>
+{%- endmacro %}
+
+{% macro render_pagination(pagination) -%}
+<div class="pagination">
+    <span class="muted">Page {{ pagination.page }}</span>
+    <div class="pager-actions">
+        {% if pagination.has_prev and pagination.prev_url %}
+            <a class="pager-link" href="{{ pagination.prev_url }}">Previous</a>
+        {% else %}
+            <span class="pager-disabled">Previous</span>
+        {% endif %}
+
+        {% if pagination.has_next and pagination.next_url %}
+            <a class="pager-link" href="{{ pagination.next_url }}">Next</a>
+        {% else %}
+            <span class="pager-disabled">Next</span>
+        {% endif %}
+    </div>
+</div>
+{%- endmacro %}

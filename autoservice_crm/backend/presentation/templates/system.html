@@ -1,0 +1,155 @@
+﻿{% extends "base.html" %}
+
+{% block title %}System Metrics{% endblock %}
+
+{% block content %}
+<section class="card metrics-card">
+    <div class="metrics-head">
+        <h1 style="margin: 0;">System Metrics</h1>
+        <p class="muted" style="margin: 6px 0 0 0;">Runtime telemetry with pluggable providers.</p>
+    </div>
+
+    <form
+        id="system-controls"
+        class="system-controls"
+        hx-get="/admin/system/widgets"
+        hx-target="#system-widgets-container"
+        hx-swap="innerHTML"
+    >
+        <input type="hidden" id="auto-refresh-input" name="auto_refresh" value="{{ 'true' if view.auto_refresh else 'false' }}">
+
+        <label class="toggle-wrap" for="auto-refresh-toggle">
+            <input id="auto-refresh-toggle" type="checkbox" {% if view.auto_refresh %}checked{% endif %}>
+            Auto refresh
+        </label>
+
+        <button type="submit">Refresh now</button>
+    </form>
+
+    <div id="system-widgets-container">
+        {% include "system_widgets.html" %}
+    </div>
+</section>
+
+<script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+<script>
+(() => {
+    const form = document.getElementById('system-controls');
+    const toggle = document.getElementById('auto-refresh-toggle');
+    const hidden = document.getElementById('auto-refresh-input');
+    let timer = null;
+
+    const syncToggle = () => {
+        hidden.value = toggle.checked ? 'true' : 'false';
+    };
+
+    const scheduleRefresh = () => {
+        if (timer) {
+            clearInterval(timer);
+            timer = null;
+        }
+        if (!toggle.checked) {
+            return;
+        }
+        timer = setInterval(() => {
+            syncToggle();
+            form.requestSubmit();
+        }, 10000);
+    };
+
+    toggle.addEventListener('change', () => {
+        syncToggle();
+        scheduleRefresh();
+        form.requestSubmit();
+    });
+
+    syncToggle();
+    scheduleRefresh();
+})();
+</script>
+
+<style>
+.metrics-card { overflow: hidden; }
+.metrics-head { margin-bottom: 14px; }
+.system-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+.toggle-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+}
+.toggle-wrap input {
+    width: auto;
+    margin: 0;
+}
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+}
+.metric-widget {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #fff;
+    padding: 12px;
+}
+.metric-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+.metric-title {
+    margin: 0;
+    font-size: 14px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.metric-value {
+    margin: 8px 0 4px 0;
+    font-size: 26px;
+    font-weight: 700;
+}
+.metric-subtitle {
+    margin: 0 0 10px 0;
+    color: var(--muted);
+    font-size: 13px;
+}
+.metric-chart {
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #e5edf8;
+    background: #f8fbff;
+}
+.metric-chart svg {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+.status-pill {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+.status-ok .status-pill { color: #166534; background: #dcfce7; }
+.status-warning .status-pill { color: #9a3412; background: #ffedd5; }
+.status-critical .status-pill { color: #991b1b; background: #fee2e2; }
+.metrics-footer {
+    margin-top: 10px;
+    font-size: 12px;
+}
+@media (max-width: 640px) {
+    .metric-value { font-size: 22px; }
+}
+</style>
+{% endblock %}

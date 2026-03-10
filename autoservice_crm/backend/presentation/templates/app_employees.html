@@ -1,0 +1,121 @@
+﻿{% extends "app_layout.html" %}
+{% import "components/table.html" as table %}
+
+{% block title %}Employees CRM{% endblock %}
+
+{% block app_content %}
+<form method="get" action="/app/employees" class="toolbar">
+    <div>
+        <label for="employees-q">Search</label>
+        <input id="employees-q" type="search" name="q" value="{{ view.q }}" placeholder="Email or user id">
+    </div>
+    <div>
+        <label for="employees-role">Role</label>
+        <select id="employees-role" name="role">
+            <option value="" {% if not view.role_filter %}selected{% endif %}>All</option>
+            {% for role in view.role_options %}
+                <option value="{{ role }}" {% if view.role_filter == role %}selected{% endif %}>{{ role }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div>
+        <label for="employees-per-page">Rows</label>
+        <select id="employees-per-page" name="per_page">
+            {% for size in [10, 20, 50] %}
+                <option value="{{ size }}" {% if view.pagination.per_page == size %}selected{% endif %}>{{ size }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <input type="hidden" name="page" value="1">
+    <button type="submit">Apply</button>
+    {% if has_perm(current_user, 'employees', 'create') %}
+        <a class="action-link" href="/app/employees?q={{ view.q|urlencode }}&role={{ view.role_filter|urlencode }}&page={{ view.pagination.page }}&per_page={{ view.pagination.per_page }}&modal=create">New Employee</a>
+    {% endif %}
+</form>
+
+{% call table.render_table(["Email", "Role", "Active", "Actions"]) %}
+    {% if view.rows %}
+        {% for row in view.rows %}
+            <tr>
+                <td><strong>{{ row.email }}</strong></td>
+                <td>{{ row.role }}</td>
+                <td>{{ 'yes' if row.is_active else 'no' }}</td>
+                <td>
+                    <div class="actions">
+                        {% if has_perm(current_user, 'employees', 'update') %}
+                            <a class="action-link" href="/app/employees?q={{ view.q|urlencode }}&role={{ view.role_filter|urlencode }}&page={{ view.pagination.page }}&per_page={{ view.pagination.per_page }}&modal=edit&edit_id={{ row.user_id }}">Edit</a>
+                        {% endif %}
+                        {% if has_perm(current_user, 'employees', 'delete') %}
+                            <form class="inline-form" method="post" action="/app/employees/{{ row.user_id }}/delete" onsubmit="return confirm('Remove employee from tenant?');">
+                                <input type="hidden" name="q" value="{{ view.q }}">
+                                <input type="hidden" name="role" value="{{ view.role_filter }}">
+                                <input type="hidden" name="page" value="{{ view.pagination.page }}">
+                                <input type="hidden" name="per_page" value="{{ view.pagination.per_page }}">
+                                <button type="submit" class="action-link action-danger">Delete</button>
+                            </form>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+        {% endfor %}
+    {% else %}
+        <tr><td colspan="4" class="muted">No employees found.</td></tr>
+    {% endif %}
+{% endcall %}
+
+{{ table.render_pagination(view.pagination) }}
+
+{% if view.modal_mode %}
+<div class="modal-backdrop">
+    <section class="modal-card">
+        <div class="modal-head">
+            <h3 style="margin: 0;">{{ 'Create Employee' if view.modal_mode == 'create' else 'Edit Employee' }}</h3>
+            <a class="action-link" href="{{ view.close_modal_url }}">Close</a>
+        </div>
+
+        {% if view.modal_error %}
+            <div class="error">{{ view.modal_error }}</div>
+        {% endif %}
+
+        {% if view.modal_mode == 'create' %}
+            <form method="post" action="/app/employees/create" class="modal-grid">
+        {% else %}
+            <form method="post" action="/app/employees/{{ view.edit_id }}/update" class="modal-grid">
+        {% endif %}
+            <input type="hidden" name="q" value="{{ view.q }}">
+            <input type="hidden" name="role" value="{{ view.role_filter }}">
+            <input type="hidden" name="page" value="{{ view.pagination.page }}">
+            <input type="hidden" name="per_page" value="{{ view.pagination.per_page }}">
+
+            <label>Email</label>
+            <input name="email" type="email" required value="{{ view.modal_values.get('email', '') }}">
+
+            <label>{{ 'Password' if view.modal_mode == 'create' else 'New password (optional)' }}</label>
+            <input name="password" type="password" {% if view.modal_mode == 'create' %}required{% endif %} minlength="8" maxlength="128" value="{{ view.modal_values.get('password', '') }}">
+
+            <label>Role</label>
+            <select name="employee_role">
+                {% for role in view.role_options %}
+                    <option value="{{ role }}" {% if view.modal_values.get('role', 'employee') == role %}selected{% endif %}>{{ role }}</option>
+                {% endfor %}
+            </select>
+
+            {% if view.modal_mode == 'edit' %}
+                <label>Active</label>
+                <select name="is_active">
+                    <option value="true" {% if view.modal_values.get('is_active', 'true') == 'true' %}selected{% endif %}>yes</option>
+                    <option value="false" {% if view.modal_values.get('is_active') == 'false' %}selected{% endif %}>no</option>
+                </select>
+            {% endif %}
+
+            <div class="modal-actions">
+                <a class="action-link" href="{{ view.close_modal_url }}">Cancel</a>
+                <button type="submit">{{ 'Create' if view.modal_mode == 'create' else 'Save' }}</button>
+            </div>
+        </form>
+    </section>
+</div>
+{% endif %}
+{% endblock %}
+
+

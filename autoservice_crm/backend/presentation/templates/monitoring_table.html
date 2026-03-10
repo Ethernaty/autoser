@@ -1,0 +1,70 @@
+<div class="table-wrap">
+    <table class="monitor-table">
+        <thead>
+        <tr>
+            <th>Time</th>
+            <th>Level</th>
+            <th>Action</th>
+            <th>Message</th>
+            <th>User</th>
+            <th>Stacktrace</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% if view.rows %}
+            {% for row in view.rows %}
+                <tr>
+                    <td>{{ row.created_at.strftime("%Y-%m-%d %H:%M:%S") if row.created_at else "-" }}</td>
+                    <td><span class="log-level level-{{ row.level|lower }}">{{ row.level }}</span></td>
+                    <td>
+                        <strong>{{ row.action }}</strong>
+                        <div class="muted tiny">{{ row.entity }}</div>
+                    </td>
+                    <td class="log-message">{{ row.message }}</td>
+                    <td class="tiny">{{ row.user_id }}</td>
+                    <td>
+                        {% if row.stacktrace %}
+                            <button type="button" class="stacktrace-btn" data-stacktrace="{{ row.stacktrace|e }}">View</button>
+                        {% else %}
+                            <span class="muted">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+        {% else %}
+            <tr><td colspan="6" class="muted">No logs found.</td></tr>
+        {% endif %}
+        </tbody>
+    </table>
+</div>
+
+<div class="pagination">
+    <div class="muted">Page {{ view.page }}</div>
+    <div class="pager-actions">
+        {% if view.has_prev %}
+            <a
+                class="pager-link"
+                href="{{ page_route }}?q={{ view.q|urlencode }}&level={{ view.level|urlencode }}&per_page={{ view.per_page }}&page={{ view.page - 1 }}&auto_refresh={{ 'true' if view.auto_refresh else 'false' }}"
+                hx-get="{{ table_route }}?q={{ view.q|urlencode }}&level={{ view.level|urlencode }}&per_page={{ view.per_page }}&page={{ view.page - 1 }}&auto_refresh={{ 'true' if view.auto_refresh else 'false' }}"
+                hx-target="#monitor-table-container"
+                hx-swap="innerHTML"
+                hx-push-url="true"
+            >Previous</a>
+        {% else %}
+            <span class="pager-disabled">Previous</span>
+        {% endif %}
+
+        {% if view.has_next %}
+            <a
+                class="pager-link"
+                href="{{ page_route }}?q={{ view.q|urlencode }}&level={{ view.level|urlencode }}&per_page={{ view.per_page }}&page={{ view.page + 1 }}&auto_refresh={{ 'true' if view.auto_refresh else 'false' }}"
+                hx-get="{{ table_route }}?q={{ view.q|urlencode }}&level={{ view.level|urlencode }}&per_page={{ view.per_page }}&page={{ view.page + 1 }}&auto_refresh={{ 'true' if view.auto_refresh else 'false' }}"
+                hx-target="#monitor-table-container"
+                hx-swap="innerHTML"
+                hx-push-url="true"
+            >Next</a>
+        {% else %}
+            <span class="pager-disabled">Next</span>
+        {% endif %}
+    </div>
+</div>

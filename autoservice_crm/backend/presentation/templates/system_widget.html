@@ -1,0 +1,9 @@
+﻿<article class="metric-widget status-{{ widget.status }}" data-metric="{{ widget.key }}">
+    <div class="metric-header">
+        <h3 class="metric-title">{{ widget.title }}</h3>
+        <span class="status-pill">{{ widget.status }}</span>
+    </div>
+    <p class="metric-value">{{ widget.value }}</p>
+    <p class="metric-subtitle">{{ widget.subtitle }}</p>
+    <div class="metric-chart">{{ widget.chart_svg | safe }}</div>
+</article>

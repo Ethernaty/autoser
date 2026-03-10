@@ -1,0 +1,17 @@
+﻿<div class="metrics-grid">
+    {% if view.widgets %}
+        {% for widget in view.widgets %}
+            {% include "system_widget.html" %}
+        {% endfor %}
+    {% else %}
+        <article class="metric-widget status-warning">
+            <div class="metric-header">
+                <h3 class="metric-title">Metrics</h3>
+                <span class="status-pill">warning</span>
+            </div>
+            <p class="metric-value">n/a</p>
+            <p class="metric-subtitle">No metrics available.</p>
+        </article>
+    {% endif %}
+</div>
+<div class="metrics-footer muted">Updated at {{ view.refreshed_at.strftime("%Y-%m-%d %H:%M:%S UTC") }}</div>
