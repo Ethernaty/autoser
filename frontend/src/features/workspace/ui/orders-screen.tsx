@@ -3,18 +3,20 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { formatPhoneForDisplay } from "@/core/lib/phone";
+import { formatPhoneForDisplay, normalizePhoneForSubmit } from "@/core/lib/phone";
 import { ROUTES } from "@/core/config/routes";
 import { cn } from "@/core/lib/utils";
 import { DataTable } from "@/design-system/primitives/data-table/data-table";
 import type { DataTableColumn } from "@/design-system/primitives/data-table/data-table.types";
-import { Badge, Button, FormActions, FormField, Input, Modal, Select, Textarea } from "@/design-system/primitives";
+import { Badge, Button, Combobox, FormActions, FormField, Input, Modal, PhoneInput, Select, Textarea } from "@/design-system/primitives";
 import { PageLayout } from "@/design-system/patterns";
 import {
   closeWorkOrder,
+  createClient,
+  createVehicle,
   createWorkOrder,
   fetchClients,
   fetchEmployees,
@@ -26,6 +28,7 @@ import {
 import type { WorkOrderRecord, WorkOrderStatus } from "@/features/workspace/types/mvp-types";
 
 const PAGE_SIZE = 20;
+const LOOKUP_LIMIT = 50;
 
 type CreateWorkOrderForm = {
   client_id: string;
@@ -35,6 +38,23 @@ type CreateWorkOrderForm = {
   total_amount: string;
 };
 
+type IntakeMode = "select" | "create";
+
+type NewClientForm = {
+  name: string;
+  phone: string;
+  email: string;
+  comment: string;
+};
+
+type NewVehicleForm = {
+  plate_number: string;
+  make_model: string;
+  year: string;
+  vin: string;
+  comment: string;
+};
+
 function defaultForm(): CreateWorkOrderForm {
   return {
     client_id: "",
@@ -42,6 +62,25 @@ function defaultForm(): CreateWorkOrderForm {
     assigned_employee_id: "",
     description: "",
     total_amount: ""
+  };
+}
+
+function defaultNewClientForm(): NewClientForm {
+  return {
+    name: "",
+    phone: "",
+    email: "",
+    comment: ""
+  };
+}
+
+function defaultNewVehicleForm(): NewVehicleForm {
+  return {
+    plate_number: "",
+    make_model: "",
+    year: "",
+    vin: "",
+    comment: ""
   };
 }
 
@@ -116,8 +155,14 @@ export function OrdersScreen(): JSX.Element {
   const [assigneeFilter, setAssigneeFilter] = useState<"all" | "unassigned" | string>(initialAssignee);
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<CreateWorkOrderForm>(defaultForm());
+  const [clientMode, setClientMode] = useState<IntakeMode>("select");
+  const [vehicleMode, setVehicleMode] = useState<IntakeMode>("select");
   const [clientSearch, setClientSearch] = useState("");
+  const [clientLookupQuery, setClientLookupQuery] = useState("");
   const [vehicleSearch, setVehicleSearch] = useState("");
+  const [vehicleLookupQuery, setVehicleLookupQuery] = useState("");
+  const [newClientForm, setNewClientForm] = useState<NewClientForm>(defaultNewClientForm());
+  const [newVehicleForm, setNewVehicleForm] = useState<NewVehicleForm>(defaultNewVehicleForm());
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -136,42 +181,80 @@ export function OrdersScreen(): JSX.Element {
     setAssigneeFilter(nextAssignee);
   }, [searchParams]);
 
-  const updateUrlState = (next: {
-    q: string;
-    page: number;
-    status: "all" | WorkOrderStatus;
-    assignee: "all" | "unassigned" | string;
-  }): void => {
-    const params = new URLSearchParams(searchParams.toString());
+  const updateUrlState = useCallback(
+    (next: {
+      q: string;
+      page: number;
+      status: "all" | WorkOrderStatus;
+      assignee: "all" | "unassigned" | string;
+    }): void => {
+      const params = new URLSearchParams(searchParams.toString());
 
-    if (next.q) {
-      params.set("q", next.q);
-    } else {
-      params.delete("q");
-    }
+      if (next.q) {
+        params.set("q", next.q);
+      } else {
+        params.delete("q");
+      }
 
-    if (next.page > 1) {
-      params.set("page", String(next.page));
-    } else {
-      params.delete("page");
-    }
+      if (next.page > 1) {
+        params.set("page", String(next.page));
+      } else {
+        params.delete("page");
+      }
 
-    if (next.status !== "all") {
-      params.set("status", next.status);
-    } else {
-      params.delete("status");
-    }
+      if (next.status !== "all") {
+        params.set("status", next.status);
+      } else {
+        params.delete("status");
+      }
 
-    if (next.assignee !== "all") {
-      params.set("assignee", next.assignee);
-    } else {
-      params.delete("assignee");
-    }
+      if (next.assignee !== "all") {
+        params.set("assignee", next.assignee);
+      } else {
+        params.delete("assignee");
+      }
 
-    const queryString = params.toString();
-    const nextHref = queryString ? `${pathname}?${queryString}` : pathname;
-    router.replace(nextHref as Route, { scroll: false });
-  };
+      const queryString = params.toString();
+      const nextHref = queryString ? `${pathname}?${queryString}` : pathname;
+      router.replace(nextHref as Route, { scroll: false });
+    },
+    [pathname, router, searchParams]
+  );
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const nextQ = search.trim();
+      if (nextQ === q) {
+        return;
+      }
+
+      setQ(nextQ);
+      setPage(1);
+      updateUrlState({ q: nextQ, page: 1, status: statusFilter, assignee: assigneeFilter });
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [assigneeFilter, q, search, statusFilter, updateUrlState]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setClientLookupQuery(clientSearch.trim());
+    }, 200);
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [clientSearch]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setVehicleLookupQuery(vehicleSearch.trim());
+    }, 200);
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [vehicleSearch]);
 
   const offset = (page - 1) * PAGE_SIZE;
   const workOrdersQuery = useQuery({
@@ -181,18 +264,36 @@ export function OrdersScreen(): JSX.Element {
   });
 
   const clientsQuery = useQuery({
-    queryKey: mvpQueryKeys.clients("", 300, 0),
-    queryFn: () => fetchClients({ limit: 300, offset: 0 })
+    queryKey: mvpQueryKeys.clients("", LOOKUP_LIMIT, 0),
+    queryFn: () => fetchClients({ limit: LOOKUP_LIMIT, offset: 0 })
   });
 
   const vehiclesQuery = useQuery({
-    queryKey: mvpQueryKeys.vehicles("", "", 500, 0),
-    queryFn: () => fetchVehicles({ limit: 500, offset: 0 })
+    queryKey: mvpQueryKeys.vehicles("", "", LOOKUP_LIMIT, 0),
+    queryFn: () => fetchVehicles({ limit: LOOKUP_LIMIT, offset: 0 })
   });
 
   const employeesQuery = useQuery({
-    queryKey: mvpQueryKeys.employees("", "", 200, 0),
-    queryFn: () => fetchEmployees({ limit: 200, offset: 0 })
+    queryKey: mvpQueryKeys.employees("", "", LOOKUP_LIMIT, 0),
+    queryFn: () => fetchEmployees({ limit: LOOKUP_LIMIT, offset: 0 })
+  });
+
+  const clientLookupResultsQuery = useQuery({
+    queryKey: mvpQueryKeys.clients(clientLookupQuery, LOOKUP_LIMIT, 0),
+    queryFn: () => fetchClients({ q: clientLookupQuery, limit: LOOKUP_LIMIT, offset: 0 }),
+    enabled: modalOpen
+  });
+
+  const vehiclesByClientQuery = useQuery({
+    queryKey: mvpQueryKeys.vehicles(vehicleLookupQuery, form.client_id, LOOKUP_LIMIT, 0),
+    queryFn: () =>
+      fetchVehicles({
+        q: vehicleLookupQuery,
+        client_id: form.client_id || undefined,
+        limit: LOOKUP_LIMIT,
+        offset: 0
+      }),
+    enabled: modalOpen && Boolean(form.client_id)
   });
 
   const createMutation = useMutation({
@@ -200,6 +301,20 @@ export function OrdersScreen(): JSX.Element {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["work-orders"] });
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.dashboardSummary });
+    }
+  });
+
+  const createClientMutation = useMutation({
+    mutationFn: createClient,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["clients"] });
+    }
+  });
+
+  const createVehicleMutation = useMutation({
+    mutationFn: createVehicle,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["vehicles"] });
     }
   });
 
@@ -238,42 +353,25 @@ export function OrdersScreen(): JSX.Element {
     return map;
   }, [employeesQuery.data?.items]);
 
-  const filteredClients = useMemo(() => {
-    const normalized = clientSearch.trim().toLowerCase();
-    if (!normalized) {
-      return clientsQuery.data?.items ?? [];
-    }
-    return (clientsQuery.data?.items ?? []).filter((client) => {
-      return (
-        client.name.toLowerCase().includes(normalized) ||
-        client.phone.toLowerCase().includes(normalized) ||
-        (client.email ?? "").toLowerCase().includes(normalized)
-      );
-    });
-  }, [clientSearch, clientsQuery.data?.items]);
+  const clientOptions = useMemo(
+    () =>
+      (clientLookupResultsQuery.data?.items ?? []).map((client) => ({
+        value: client.id,
+        label: `${client.name} (${formatPhoneForDisplay(client.phone)})`,
+        keywords: [client.phone, client.email ?? ""]
+      })),
+    [clientLookupResultsQuery.data?.items]
+  );
 
-  const filteredVehicles = useMemo(() => {
-    const normalizedVehicleSearch = vehicleSearch.trim().toLowerCase();
-    return (vehiclesQuery.data?.items ?? []).filter((vehicle) => {
-      const belongsToClient = !form.client_id || vehicle.client_id === form.client_id;
-      const matchesSearch =
-        !normalizedVehicleSearch ||
-        vehicle.plate_number.toLowerCase().includes(normalizedVehicleSearch) ||
-        vehicle.make_model.toLowerCase().includes(normalizedVehicleSearch) ||
-        (vehicle.vin ?? "").toLowerCase().includes(normalizedVehicleSearch);
-      return belongsToClient && matchesSearch;
-    });
-  }, [form.client_id, vehicleSearch, vehiclesQuery.data?.items]);
-
-  useEffect(() => {
-    if (!form.vehicle_id) {
-      return;
-    }
-    const stillExists = filteredVehicles.some((vehicle) => vehicle.id === form.vehicle_id);
-    if (!stillExists) {
-      setForm((prev) => ({ ...prev, vehicle_id: "" }));
-    }
-  }, [filteredVehicles, form.vehicle_id]);
+  const vehicleOptions = useMemo(
+    () =>
+      (vehiclesByClientQuery.data?.items ?? []).map((vehicle) => ({
+        value: vehicle.id,
+        label: `${vehicle.plate_number} - ${vehicle.make_model}`,
+        keywords: [vehicle.vin ?? "", vehicle.make_model]
+      })),
+    [vehiclesByClientQuery.data?.items]
+  );
 
   const rows = workOrdersQuery.data?.items ?? [];
   const filteredRows = useMemo(() => {
@@ -405,7 +503,8 @@ export function OrdersScreen(): JSX.Element {
                 <Button
                   size="sm"
                   variant="secondary"
-                  onClick={() => {
+                  onClick={(event) => {
+                    event.stopPropagation();
                     router.push(ROUTES.workOrderDetail(row.id) as Route);
                   }}
                   disabled={isRowActionBusy}
@@ -413,7 +512,15 @@ export function OrdersScreen(): JSX.Element {
                   Open
                 </Button>
                 {transition ? (
-                  <Button size="sm" variant={transition.variant} onClick={transition.onClick} disabled={isRowActionBusy}>
+                  <Button
+                    size="sm"
+                    variant={transition.variant}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      transition.onClick();
+                    }}
+                    disabled={isRowActionBusy}
+                  >
                     {transition.label}
                   </Button>
                 ) : null}
@@ -425,6 +532,78 @@ export function OrdersScreen(): JSX.Element {
     ],
     [clientsById, closeMutation, employeesById, isRowActionBusy, router, statusMutation, vehiclesById]
   );
+
+  const openCreateModal = (): void => {
+    router.push(ROUTES.workOrderNew as Route);
+  };
+
+  const onCreateClientInline = async (): Promise<void> => {
+    const name = newClientForm.name.trim();
+    const phone = normalizePhoneForSubmit(newClientForm.phone);
+    const email = newClientForm.email.trim();
+    const comment = newClientForm.comment.trim();
+
+    if (!name || !phone) {
+      setFormError("Client name and phone are required.");
+      return;
+    }
+
+    setFormError(null);
+    const createdClient = await createClientMutation.mutateAsync({
+      name,
+      phone,
+      email: email || null,
+      comment: comment || null
+    });
+
+    setForm((prev) => ({
+      ...prev,
+      client_id: createdClient.id,
+      vehicle_id: ""
+    }));
+    setClientMode("select");
+    setVehicleMode("create");
+    setClientSearch(createdClient.name);
+    setVehicleSearch("");
+    setNewClientForm(defaultNewClientForm());
+  };
+
+  const onCreateVehicleInline = async (): Promise<void> => {
+    if (!form.client_id) {
+      setFormError("Select or create a client first.");
+      return;
+    }
+
+    const plateNumber = newVehicleForm.plate_number.trim();
+    const makeModel = newVehicleForm.make_model.trim();
+
+    if (!plateNumber || !makeModel) {
+      setFormError("Plate number and make/model are required.");
+      return;
+    }
+
+    const year = newVehicleForm.year.trim();
+    const vin = newVehicleForm.vin.trim();
+    const comment = newVehicleForm.comment.trim();
+
+    setFormError(null);
+    const createdVehicle = await createVehicleMutation.mutateAsync({
+      client_id: form.client_id,
+      plate_number: plateNumber,
+      make_model: makeModel,
+      year: year ? Number(year) : null,
+      vin: vin || null,
+      comment: comment || null
+    });
+
+    setForm((prev) => ({
+      ...prev,
+      vehicle_id: createdVehicle.id
+    }));
+    setVehicleMode("select");
+    setVehicleSearch(createdVehicle.plate_number);
+    setNewVehicleForm(defaultNewVehicleForm());
+  };
 
   const onSubmitCreate = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
@@ -451,12 +630,17 @@ export function OrdersScreen(): JSX.Element {
 
     setModalOpen(false);
     setForm(defaultForm());
+    setClientMode("select");
+    setVehicleMode("select");
     setClientSearch("");
+    setClientLookupQuery("");
     setVehicleSearch("");
+    setVehicleLookupQuery("");
+    setNewClientForm(defaultNewClientForm());
+    setNewVehicleForm(defaultNewVehicleForm());
   };
 
   const hasActiveSearch = Boolean(q || search);
-  const totalRecords = workOrdersQuery.data?.total ?? 0;
   const summaryItems: Array<{
     id: string;
     label: string;
@@ -464,7 +648,6 @@ export function OrdersScreen(): JSX.Element {
     tone?: "neutral" | "success" | "warning";
     emphasized?: boolean;
   }> = [
-    { id: "visible", label: "Visible in queue", value: filteredRows.length },
     { id: "open", label: "Open queue", value: queueStats.openCount, tone: "warning" },
     { id: "completed", label: "Completed", value: queueStats.completedCount, tone: "success" },
     { id: "unassigned", label: "Unassigned", value: queueStats.unassignedCount, tone: "neutral" },
@@ -490,53 +673,22 @@ export function OrdersScreen(): JSX.Element {
           </Button>
           <Button
             variant="primary"
-            onClick={() => {
-              setForm(defaultForm());
-              setClientSearch("");
-              setVehicleSearch("");
-              setFormError(null);
-              setModalOpen(true);
-            }}
+            onClick={openCreateModal}
           >
             New work order
           </Button>
         </div>
       }
     >
-      <div className="overflow-hidden rounded-lg border border-neutral-300 bg-neutral-0 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-200 px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">Queue controls</p>
-            <p className="mt-1 text-sm text-neutral-700">Search and filter first, then perform status transitions directly in queue rows.</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Badge tone="neutral">Server total {totalRecords}</Badge>
-            <Badge tone="primary">Visible {filteredRows.length}</Badge>
-          </div>
-        </div>
-
-        <div className="px-4 py-3">
-          <div className="grid grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1fr)_220px_240px_auto]">
-            <form
-              className="flex w-full gap-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const nextQ = search.trim();
-                setQ(nextQ);
-                setPage(1);
-                updateUrlState({ q: nextQ, page: 1, status: statusFilter, assignee: assigneeFilter });
-              }}
-            >
-              <Input
-                className="w-full"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search by work-order description"
-              />
-              <Button type="submit" variant="secondary">
-                Search
-              </Button>
-            </form>
+      <div className="space-y-2">
+        <div className="rounded-lg border border-neutral-300 bg-neutral-0 px-3 py-2 shadow-sm">
+          <div className="grid grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1fr)_180px_220px_auto]">
+            <Input
+              className="w-full"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search by description, client or vehicle"
+            />
 
             <Select
               value={statusFilter}
@@ -585,18 +737,18 @@ export function OrdersScreen(): JSX.Element {
               }}
               disabled={!hasActiveSearch && statusFilter === "all" && assigneeFilter === "all"}
             >
-              Reset all
+              Reset
             </Button>
           </div>
         </div>
 
-        <div className="border-t border-neutral-200 bg-neutral-50 px-4 py-3">
-          <div className="grid grid-cols-2 gap-x-3 gap-y-3 md:grid-cols-4 xl:grid-cols-7 xl:gap-x-0">
+        <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-2 md:grid-cols-3 xl:grid-cols-6 xl:gap-x-0">
             {summaryItems.map((item, index) => (
               <div
                 key={item.id}
                 className={cn(
-                  "min-w-0 xl:px-4",
+                  "min-w-0 xl:px-3",
                   index === 0 ? "xl:pl-0" : "xl:border-l xl:border-neutral-200",
                   index === summaryItems.length - 1 ? "xl:pr-0" : ""
                 )}
@@ -606,35 +758,21 @@ export function OrdersScreen(): JSX.Element {
             ))}
           </div>
         </div>
-      </div>
 
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-[18px] leading-6 font-semibold text-neutral-900">Work-order queue</h2>
-            <p className="mt-1 text-sm text-neutral-600">Primary operational list for assignment, cash control and closure decisions.</p>
-          </div>
-        </div>
         <DataTable
           columns={columns}
           rows={filteredRows}
           getRowId={(row) => row.id}
+          onRowClick={(row) => {
+            router.push(ROUTES.workOrderDetail(row.id) as Route);
+          }}
           loading={workOrdersQuery.isLoading}
           error={workOrdersQuery.error?.message}
           onRetry={() => void workOrdersQuery.refetch()}
           emptyTitle="No work orders in this view"
           emptyDescription="Start with a new work order linked to a client vehicle. It will appear here for assignment and status tracking."
           emptyAction={
-            <Button
-              variant="primary"
-              onClick={() => {
-                setForm(defaultForm());
-                setClientSearch("");
-                setVehicleSearch("");
-                setFormError(null);
-                setModalOpen(true);
-              }}
-            >
+            <Button variant="primary" onClick={openCreateModal}>
               Create work order
             </Button>
           }
@@ -653,109 +791,6 @@ export function OrdersScreen(): JSX.Element {
         />
       </div>
 
-      <Modal
-        open={modalOpen}
-        onOpenChange={setModalOpen}
-        title="Create work order"
-        description="Use canonical flow: client -> vehicle -> assignee -> amount."
-        size="lg"
-        footer={
-          <FormActions>
-            <Button variant="secondary" onClick={() => setModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" form="work-order-create-form" loading={createMutation.isPending}>
-              Create
-            </Button>
-          </FormActions>
-        }
-      >
-        <form id="work-order-create-form" className="grid grid-cols-1 gap-3 md:grid-cols-2" onSubmit={(event) => void onSubmitCreate(event)}>
-          <FormField id="client-search" label="Find client">
-            <Input
-              id="client-search"
-              value={clientSearch}
-              onChange={(event) => setClientSearch(event.target.value)}
-              placeholder="Search client by name, phone, email"
-            />
-          </FormField>
-          <FormField id="client_id" label="Client" required>
-            <Select
-              id="client_id"
-              value={form.client_id}
-              onChange={(event) => setForm((prev) => ({ ...prev, client_id: event.target.value }))}
-            >
-              <option value="">Select client</option>
-              {filteredClients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.name} ({formatPhoneForDisplay(client.phone)})
-                </option>
-              ))}
-            </Select>
-          </FormField>
-
-          <FormField id="vehicle-search" label="Find vehicle">
-            <Input
-              id="vehicle-search"
-              value={vehicleSearch}
-              onChange={(event) => setVehicleSearch(event.target.value)}
-              placeholder="Search by plate, model, VIN"
-            />
-          </FormField>
-          <FormField id="vehicle_id" label="Vehicle" required>
-            <Select
-              id="vehicle_id"
-              value={form.vehicle_id}
-              onChange={(event) => setForm((prev) => ({ ...prev, vehicle_id: event.target.value }))}
-            >
-              <option value="">Select vehicle</option>
-              {filteredVehicles.map((vehicle) => (
-                <option key={vehicle.id} value={vehicle.id}>
-                  {vehicle.plate_number} - {vehicle.make_model}
-                </option>
-              ))}
-            </Select>
-          </FormField>
-          {form.client_id && filteredVehicles.length === 0 ? (
-            <p className="text-xs text-neutral-600 md:col-span-2">No vehicles found for selected client. Add a vehicle first.</p>
-          ) : null}
-
-          <FormField id="assigned_employee_id" label="Assignee (optional)" className="md:col-span-2">
-            <Select
-              id="assigned_employee_id"
-              value={form.assigned_employee_id}
-              onChange={(event) => setForm((prev) => ({ ...prev, assigned_employee_id: event.target.value }))}
-            >
-              <option value="">Unassigned</option>
-              {(employeesQuery.data?.items ?? []).map((employee) => (
-                <option key={employee.employee_id} value={employee.employee_id}>
-                  {employee.email} ({employee.role})
-                </option>
-              ))}
-            </Select>
-          </FormField>
-
-          <FormField id="total_amount" label="Total amount" required>
-            <Input
-              id="total_amount"
-              value={form.total_amount}
-              onChange={(event) => setForm((prev) => ({ ...prev, total_amount: event.target.value }))}
-              placeholder="0.00"
-            />
-          </FormField>
-          <FormField id="description" label="Description" required>
-            <Textarea
-              className="min-h-28"
-              id="description"
-              value={form.description}
-              onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-            />
-          </FormField>
-
-          {formError ? <p className="text-sm text-error md:col-span-2">{formError}</p> : null}
-          {createMutation.error ? <p className="text-sm text-error md:col-span-2">{createMutation.error.message}</p> : null}
-        </form>
-      </Modal>
     </PageLayout>
   );
 }

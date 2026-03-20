@@ -121,7 +121,7 @@ export function DashboardScreen(): JSX.Element {
     <PageLayout title="Dashboard" subtitle="What is happening now and what to do next">
       <Section title="Quick actions" description="Start the most common daily operations.">
         <div className="flex flex-wrap gap-2">
-          <Link href={ROUTES.workOrders as Route}>
+          <Link href={ROUTES.workOrderNew as Route}>
             <Button variant="primary">Create work order</Button>
           </Link>
           <Link href={ROUTES.clients as Route}>
@@ -207,7 +207,7 @@ export function DashboardScreen(): JSX.Element {
             <p className="text-sm font-medium text-neutral-800">No active work orders right now.</p>
             <p className="mt-1 text-sm text-neutral-600">Start with your first work order to launch the daily queue.</p>
             <div className="mt-3">
-              <Link href={ROUTES.workOrders as Route}>
+              <Link href={ROUTES.workOrderNew as Route}>
                 <Button variant="primary">Create work order</Button>
               </Link>
             </div>

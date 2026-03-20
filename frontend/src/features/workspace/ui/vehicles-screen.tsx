@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import type { Route } from "next";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ROUTES } from "@/core/config/routes";
@@ -11,7 +10,7 @@ import { formatPhoneForDisplay } from "@/core/lib/phone";
 import { DataTable } from "@/design-system/primitives/data-table/data-table";
 import type { DataTableColumn } from "@/design-system/primitives/data-table/data-table.types";
 import { Button, FormActions, FormField, Input, Modal, Textarea } from "@/design-system/primitives";
-import { PageLayout, Section, Toolbar } from "@/design-system/patterns";
+import { PageLayout } from "@/design-system/patterns";
 import {
   createVehicle,
   fetchClients,
@@ -71,22 +70,41 @@ export function VehiclesScreen(): JSX.Element {
   }, [searchParams]);
 
   const offset = (page - 1) * PAGE_SIZE;
-  const updateUrlState = (next: { q: string; page: number }): void => {
-    const params = new URLSearchParams(searchParams.toString());
-    if (next.q) {
-      params.set("q", next.q);
-    } else {
-      params.delete("q");
-    }
-    if (next.page > 1) {
-      params.set("page", String(next.page));
-    } else {
-      params.delete("page");
-    }
-    const queryString = params.toString();
-    const nextHref = queryString ? `${pathname}?${queryString}` : pathname;
-    router.replace(nextHref as Route, { scroll: false });
-  };
+  const updateUrlState = useCallback(
+    (next: { q: string; page: number }): void => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (next.q) {
+        params.set("q", next.q);
+      } else {
+        params.delete("q");
+      }
+      if (next.page > 1) {
+        params.set("page", String(next.page));
+      } else {
+        params.delete("page");
+      }
+      const queryString = params.toString();
+      const nextHref = queryString ? `${pathname}?${queryString}` : pathname;
+      router.replace(nextHref as Route, { scroll: false });
+    },
+    [pathname, router, searchParams]
+  );
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const nextQ = search.trim();
+      if (nextQ === q) {
+        return;
+      }
+      setQ(nextQ);
+      setPage(1);
+      updateUrlState({ q: nextQ, page: 1 });
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [q, search, updateUrlState]);
 
   const vehiclesQuery = useQuery({
     queryKey: mvpQueryKeys.vehicles(q, "", PAGE_SIZE, offset),
@@ -95,8 +113,9 @@ export function VehiclesScreen(): JSX.Element {
   });
 
   const clientsQuery = useQuery({
-    queryKey: mvpQueryKeys.clients("", 100, 0),
-    queryFn: () => fetchClients({ limit: 100, offset: 0 })
+    queryKey: mvpQueryKeys.clients("", 50, 0),
+    queryFn: () => fetchClients({ limit: 50, offset: 0 }),
+    refetchOnMount: true
   });
 
   const createMutation = useMutation({
@@ -128,38 +147,31 @@ export function VehiclesScreen(): JSX.Element {
   const columns = useMemo<DataTableColumn<VehicleRecord>[]>(
     () => [
       {
-        id: "plate",
-        header: "Plate",
-        minWidth: 150,
+        id: "vehicle",
+        header: "Vehicle",
+        minWidth: 340,
         cell: (row) => (
-          <Link href={ROUTES.vehicleDetail(row.id) as Route} className="font-medium text-primary hover:underline">
-            {row.plate_number}
-          </Link>
+          <div className="space-y-0.5">
+            <p className="font-semibold text-neutral-900">{row.plate_number}</p>
+            <p className="text-xs text-neutral-600">
+              {row.make_model}
+              {row.year ? ` | ${row.year}` : ""}
+            </p>
+          </div>
         )
-      },
-      {
-        id: "model",
-        header: "Make/Model",
-        minWidth: 220,
-        cell: (row) => row.make_model
       },
       {
         id: "client",
         header: "Client",
-        minWidth: 220,
+        minWidth: 240,
         cell: (row) => clientsMap.get(row.client_id) ?? row.client_id
-      },
-      {
-        id: "year",
-        header: "Year",
-        minWidth: 90,
-        cell: (row) => (row.year ? String(row.year) : "-")
       }
     ],
     [clientsMap]
   );
 
   const onOpenCreate = (): void => {
+    void clientsQuery.refetch();
     setEditingVehicle(null);
     setForm(defaultVehicleForm());
     setFormError(null);
@@ -219,53 +231,40 @@ export function VehiclesScreen(): JSX.Element {
     setForm(defaultVehicleForm());
   };
 
-  return (
-    <PageLayout title="Vehicles" subtitle="Vehicle cards and service history linkage">
-      <Section>
-        <Toolbar
-          leading={
-            <form
-              className="flex items-center gap-1"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const nextQ = search.trim();
-                setQ(nextQ);
-                setPage(1);
-                updateUrlState({ q: nextQ, page: 1 });
-              }}
-            >
-              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by plate or model" />
-              <Button type="submit" variant="secondary">
-                Search
-              </Button>
-            </form>
-          }
-          trailing={
-            <Button onClick={onOpenCreate} variant="primary">
-              Add vehicle
-            </Button>
-          }
-        />
-      </Section>
+  const hasClients = (clientsQuery.data?.items?.length ?? 0) > 0;
 
-      <Section>
+  return (
+    <PageLayout
+      title="Vehicles"
+      subtitle="Fast vehicle registry linked to client records"
+      className="space-y-2"
+      actions={
+        <Button onClick={onOpenCreate} variant="primary">
+          Add vehicle
+        </Button>
+      }
+    >
+      <div className="space-y-1.5">
+        <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by plate or model" />
+
         <DataTable
           columns={columns}
           rows={rows}
           getRowId={(row) => row.id}
+          onRowClick={(row) => {
+            router.push(ROUTES.vehicleDetail(row.id) as Route);
+          }}
           loading={vehiclesQuery.isLoading}
           error={vehiclesQuery.error?.message}
           onRetry={() => void vehiclesQuery.refetch()}
-          emptyTitle="No vehicles"
-          emptyDescription="Add a vehicle to link it with work orders."
+          emptyTitle="No vehicles yet"
+          emptyDescription="Add your first vehicle to start linking work orders."
+          emptyAction={
+            <Button variant="primary" onClick={onOpenCreate}>
+              Add vehicle
+            </Button>
+          }
           rowActions={[
-            {
-              id: "open",
-              label: "Details",
-              onClick: (row) => {
-                router.push(ROUTES.vehicleDetail(row.id) as Route);
-              }
-            },
             {
               id: "edit",
               label: "Edit",
@@ -273,17 +272,22 @@ export function VehiclesScreen(): JSX.Element {
               onClick: onOpenEdit
             }
           ]}
-          pagination={{
-            page,
-            pageSize: PAGE_SIZE,
-            total: vehiclesQuery.data?.total ?? 0,
-            onPageChange: (nextPage) => {
-              setPage(nextPage);
-              updateUrlState({ q, page: nextPage });
-            }
-          }}
+          tableClassName="min-w-full"
+          pagination={
+            (vehiclesQuery.data?.total ?? 0) > 0
+              ? {
+                  page,
+                  pageSize: PAGE_SIZE,
+                  total: vehiclesQuery.data?.total ?? 0,
+                  onPageChange: (nextPage) => {
+                    setPage(nextPage);
+                    updateUrlState({ q, page: nextPage });
+                  }
+                }
+              : undefined
+          }
         />
-      </Section>
+      </div>
 
       <Modal
         open={modalOpen}
@@ -295,7 +299,12 @@ export function VehiclesScreen(): JSX.Element {
             <Button variant="secondary" onClick={() => setModalOpen(false)}>
               Cancel
             </Button>
-            <Button type="submit" form="vehicle-form" loading={createMutation.isPending || updateMutation.isPending}>
+            <Button
+              type="submit"
+              form="vehicle-form"
+              loading={createMutation.isPending || updateMutation.isPending}
+              disabled={!editingVehicle && !hasClients}
+            >
               {editingVehicle ? "Save" : "Create"}
             </Button>
           </FormActions>
@@ -309,14 +318,19 @@ export function VehiclesScreen(): JSX.Element {
                 className="h-5 w-full rounded-sm border border-neutral-300 bg-neutral-0 px-2 text-sm text-neutral-900"
                 value={form.client_id}
                 onChange={(event) => setForm((prev) => ({ ...prev, client_id: event.target.value }))}
+                disabled={clientsQuery.isLoading || !hasClients}
               >
-                <option value="">Select client</option>
+                <option value="">{clientsQuery.isLoading ? "Loading clients..." : "Select client"}</option>
                 {(clientsQuery.data?.items ?? []).map((client) => (
                   <option key={client.id} value={client.id}>
                     {client.name} ({formatPhoneForDisplay(client.phone)})
                   </option>
                 ))}
               </select>
+              {!clientsQuery.isLoading && !hasClients ? (
+                <p className="mt-1 text-xs text-neutral-600">No clients found. Create a client first, then add a vehicle.</p>
+              ) : null}
+              {clientsQuery.error ? <p className="mt-1 text-xs text-error">Failed to load clients. Please retry.</p> : null}
             </FormField>
           ) : null}
           <FormField id="plate-number" label="Plate number" required>

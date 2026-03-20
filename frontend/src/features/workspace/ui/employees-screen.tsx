@@ -2,13 +2,13 @@
 
 import type { Route } from "next";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { DataTable } from "@/design-system/primitives/data-table/data-table";
 import type { DataTableColumn } from "@/design-system/primitives/data-table/data-table.types";
-import { Badge, Button, FormActions, FormField, Input, Modal } from "@/design-system/primitives";
-import { PageLayout, Section, Toolbar } from "@/design-system/patterns";
+import { Badge, Button, FormActions, FormField, Input, Modal, Select } from "@/design-system/primitives";
+import { PageLayout } from "@/design-system/patterns";
 import {
   createEmployee,
   fetchEmployees,
@@ -32,6 +32,68 @@ function defaultEmployeeForm(): EmployeeForm {
     password: "",
     role: "employee"
   };
+}
+
+function formatEmployeeName(email: string): string {
+  const local = email.split("@")[0] ?? "";
+  if (!local) {
+    return "Employee";
+  }
+
+  return local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatRoleLabel(role: string): string {
+  return role.charAt(0).toUpperCase() + role.slice(1);
+}
+
+function roleTone(role: string): "primary" | "neutral" {
+  return role === "owner" || role === "admin" ? "primary" : "neutral";
+}
+
+function EmployeeRowActions({
+  onEdit,
+  onToggle,
+  isActive,
+  disabled
+}: {
+  onEdit: () => void;
+  onToggle: () => void;
+  isActive: boolean;
+  disabled: boolean;
+}): JSX.Element {
+  const [value, setValue] = useState("");
+
+  return (
+    <Select
+      variant="subtle"
+      className="h-8 w-[132px]"
+      value={value}
+      disabled={disabled}
+      onClick={(event) => event.stopPropagation()}
+      onChange={(event) => {
+        const nextValue = event.target.value;
+        setValue("");
+
+        if (nextValue === "edit") {
+          onEdit();
+          return;
+        }
+
+        if (nextValue === "toggle") {
+          onToggle();
+        }
+      }}
+    >
+      <option value="">Actions</option>
+      <option value="edit">Edit</option>
+      <option value="toggle">{isActive ? "Deactivate" : "Activate"}</option>
+    </Select>
+  );
 }
 
 export function EmployeesScreen(): JSX.Element {
@@ -61,22 +123,41 @@ export function EmployeesScreen(): JSX.Element {
     setPage(nextPage);
   }, [searchParams]);
 
-  const updateUrlState = (next: { q: string; page: number }): void => {
-    const params = new URLSearchParams(searchParams.toString());
-    if (next.q) {
-      params.set("q", next.q);
-    } else {
-      params.delete("q");
-    }
-    if (next.page > 1) {
-      params.set("page", String(next.page));
-    } else {
-      params.delete("page");
-    }
-    const queryString = params.toString();
-    const nextHref = queryString ? `${pathname}?${queryString}` : pathname;
-    router.replace(nextHref as Route, { scroll: false });
-  };
+  const updateUrlState = useCallback(
+    (next: { q: string; page: number }): void => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (next.q) {
+        params.set("q", next.q);
+      } else {
+        params.delete("q");
+      }
+      if (next.page > 1) {
+        params.set("page", String(next.page));
+      } else {
+        params.delete("page");
+      }
+      const queryString = params.toString();
+      const nextHref = queryString ? `${pathname}?${queryString}` : pathname;
+      router.replace(nextHref as Route, { scroll: false });
+    },
+    [pathname, router, searchParams]
+  );
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const nextQ = search.trim();
+      if (nextQ === q) {
+        return;
+      }
+      setQ(nextQ);
+      setPage(1);
+      updateUrlState({ q: nextQ, page: 1 });
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [q, search, updateUrlState]);
 
   const offset = (page - 1) * PAGE_SIZE;
   const employeesQuery = useQuery({
@@ -109,37 +190,6 @@ export function EmployeesScreen(): JSX.Element {
     }
   });
 
-  const rows = employeesQuery.data?.items ?? [];
-  const columns = useMemo<DataTableColumn<EmployeeRecord>[]>(
-    () => [
-      {
-        id: "email",
-        header: "Email",
-        minWidth: 260,
-        cell: (row) => <span className="font-medium text-neutral-900">{row.email}</span>
-      },
-      {
-        id: "role",
-        header: "Role",
-        minWidth: 120,
-        cell: (row) => <Badge tone="neutral">{row.role}</Badge>
-      },
-      {
-        id: "active",
-        header: "Status",
-        minWidth: 140,
-        cell: (row) => (row.is_active ? <Badge tone="success">Active</Badge> : <Badge tone="warning">Inactive</Badge>)
-      },
-      {
-        id: "created",
-        header: "Created",
-        minWidth: 180,
-        cell: (row) => new Date(row.created_at).toLocaleString()
-      }
-    ],
-    []
-  );
-
   const onOpenCreate = (): void => {
     setEditingEmployee(null);
     setForm(defaultEmployeeForm());
@@ -157,6 +207,71 @@ export function EmployeesScreen(): JSX.Element {
     setError(null);
     setModalOpen(true);
   };
+
+  const rows = employeesQuery.data?.items ?? [];
+  const isStatusMutationPending = statusMutation.isPending;
+  const columns = useMemo<DataTableColumn<EmployeeRecord>[]>(
+    () => [
+      {
+        id: "employee",
+        header: "Employee",
+        minWidth: 320,
+        cell: (row) => {
+          const displayName = formatEmployeeName(row.email);
+          const initials = displayName
+            .split(" ")
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((part) => part.charAt(0))
+            .join("")
+            .toUpperCase();
+
+          return (
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-neutral-200 text-[11px] font-semibold text-neutral-700">
+                {initials || "E"}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate font-semibold text-neutral-900">{displayName || "Employee"}</span>
+                <span className="block truncate text-xs text-neutral-600">{row.email}</span>
+              </span>
+            </div>
+          );
+        }
+      },
+      {
+        id: "role",
+        header: "Role",
+        minWidth: 120,
+        cell: (row) => <Badge tone={roleTone(row.role)}>{formatRoleLabel(row.role)}</Badge>
+      },
+      {
+        id: "status",
+        header: "Status",
+        minWidth: 120,
+        cell: (row) => (row.is_active ? <Badge tone="success">Active</Badge> : <Badge tone="warning">Inactive</Badge>)
+      },
+      {
+        id: "actions",
+        header: "",
+        minWidth: 140,
+        align: "right",
+        cell: (row) => (
+          <div className="flex justify-end">
+            <EmployeeRowActions
+              disabled={isStatusMutationPending}
+              isActive={row.is_active}
+              onEdit={() => onOpenEdit(row)}
+              onToggle={() => {
+                statusMutation.mutate({ employeeId: row.employee_id, isActive: !row.is_active });
+              }}
+            />
+          </div>
+        )
+      }
+    ],
+    [isStatusMutationPending, onOpenEdit, statusMutation]
+  );
 
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
@@ -193,70 +308,50 @@ export function EmployeesScreen(): JSX.Element {
   };
 
   return (
-    <PageLayout title="Employees" subtitle="Workspace staff and roles">
-      <Section>
-        <Toolbar
-          leading={
-            <form
-              className="flex items-center gap-1"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const nextQ = search.trim();
-                setQ(nextQ);
-                setPage(1);
-                updateUrlState({ q: nextQ, page: 1 });
-              }}
-            >
-              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search employees" />
-              <Button type="submit" variant="secondary">
-                Search
-              </Button>
-            </form>
-          }
-          trailing={
-            <Button variant="primary" onClick={onOpenCreate}>
-              Add employee
-            </Button>
-          }
-        />
-      </Section>
+    <PageLayout
+      title="Employees"
+      subtitle="Workspace team directory and access roles"
+      className="space-y-2"
+      actions={
+        <Button variant="primary" onClick={onOpenCreate}>
+          Add employee
+        </Button>
+      }
+    >
+      <div className="space-y-1.5">
+        <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search employees by name or email" />
 
-      <Section>
         <DataTable
           columns={columns}
           rows={rows}
           getRowId={(row) => row.employee_id}
+          onRowClick={onOpenEdit}
           loading={employeesQuery.isLoading}
           error={employeesQuery.error?.message}
           onRetry={() => void employeesQuery.refetch()}
-          emptyTitle="No employees"
-          emptyDescription="Create employee accounts to assign work orders."
-          rowActions={[
-            {
-              id: "edit",
-              label: "Edit",
-              variant: "secondary",
-              onClick: onOpenEdit
-            },
-            {
-              id: "toggle",
-              label: "Toggle active",
-              onClick: (row) => {
-                statusMutation.mutate({ employeeId: row.employee_id, isActive: !row.is_active });
-              }
-            }
-          ]}
-          pagination={{
-            page,
-            pageSize: PAGE_SIZE,
-            total: employeesQuery.data?.total ?? 0,
-            onPageChange: (nextPage) => {
-              setPage(nextPage);
-              updateUrlState({ q, page: nextPage });
-            }
-          }}
+          emptyTitle="No employees yet"
+          emptyDescription="Add your first employee to start assigning work orders."
+          emptyAction={
+            <Button variant="primary" onClick={onOpenCreate}>
+              Add employee
+            </Button>
+          }
+          tableClassName="min-w-full"
+          pagination={
+            (employeesQuery.data?.total ?? 0) > 0
+              ? {
+                  page,
+                  pageSize: PAGE_SIZE,
+                  total: employeesQuery.data?.total ?? 0,
+                  onPageChange: (nextPage) => {
+                    setPage(nextPage);
+                    updateUrlState({ q, page: nextPage });
+                  }
+                }
+              : undefined
+          }
         />
-      </Section>
+      </div>
 
       <Modal
         open={modalOpen}

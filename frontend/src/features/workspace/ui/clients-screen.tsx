@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -11,7 +10,7 @@ import { ROUTES } from "@/core/config/routes";
 import { DataTable } from "@/design-system/primitives/data-table/data-table";
 import type { DataTableColumn } from "@/design-system/primitives/data-table/data-table.types";
 import { Button, FormActions, FormField, Input, Modal, PhoneInput, Textarea } from "@/design-system/primitives";
-import { PageLayout, Section, Toolbar } from "@/design-system/patterns";
+import { PageLayout } from "@/design-system/patterns";
 import { createClient, fetchClients, mvpQueryKeys, updateClient } from "@/features/workspace/api/mvp-api";
 import type { ClientRecord } from "@/features/workspace/types/mvp-types";
 
@@ -62,22 +61,41 @@ export function ClientsScreen(): JSX.Element {
 
   const offset = (page - 1) * PAGE_SIZE;
 
-  const updateUrlState = (next: { q: string; page: number }): void => {
-    const params = new URLSearchParams(searchParams.toString());
-    if (next.q) {
-      params.set("q", next.q);
-    } else {
-      params.delete("q");
-    }
-    if (next.page > 1) {
-      params.set("page", String(next.page));
-    } else {
-      params.delete("page");
-    }
-    const queryString = params.toString();
-    const nextHref = queryString ? `${pathname}?${queryString}` : pathname;
-    router.replace(nextHref as Route, { scroll: false });
-  };
+  const updateUrlState = useCallback(
+    (next: { q: string; page: number }): void => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (next.q) {
+        params.set("q", next.q);
+      } else {
+        params.delete("q");
+      }
+      if (next.page > 1) {
+        params.set("page", String(next.page));
+      } else {
+        params.delete("page");
+      }
+      const queryString = params.toString();
+      const nextHref = queryString ? `${pathname}?${queryString}` : pathname;
+      router.replace(nextHref as Route, { scroll: false });
+    },
+    [pathname, router, searchParams]
+  );
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const nextQ = search.trim();
+      if (nextQ === q) {
+        return;
+      }
+      setQ(nextQ);
+      setPage(1);
+      updateUrlState({ q: nextQ, page: 1 });
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [q, search, updateUrlState]);
 
   const clientsQuery = useQuery({
     queryKey: mvpQueryKeys.clients(q, PAGE_SIZE, offset),
@@ -160,30 +178,22 @@ export function ClientsScreen(): JSX.Element {
     () => [
       {
         id: "name",
-        header: "Name",
-        minWidth: 220,
-        cell: (row) => (
-          <Link href={ROUTES.clientDetail(row.id) as Route} className="font-medium text-primary hover:underline">
-            {row.name}
-          </Link>
-        )
-      },
-      {
-        id: "phone",
-        header: "Phone",
-        minWidth: 180,
-        cell: (row) => formatPhoneForDisplay(row.phone)
-      },
-      {
-        id: "email",
-        header: "Email",
-        minWidth: 220,
-        cell: (row) => row.email ?? "-"
+        header: "Client",
+        minWidth: 320,
+        cell: (row) => {
+          const secondary = row.email ? `${formatPhoneForDisplay(row.phone)} | ${row.email}` : formatPhoneForDisplay(row.phone);
+          return (
+            <div className="space-y-0.5">
+              <p className="font-semibold text-neutral-900">{row.name}</p>
+              <p className="text-xs text-neutral-600">{secondary}</p>
+            </div>
+          );
+        }
       },
       {
         id: "updated",
-        header: "Updated",
-        minWidth: 180,
+        header: "Last update",
+        minWidth: 190,
         align: "right",
         cell: (row) => new Date(row.updated_at).toLocaleString()
       }
@@ -192,52 +202,37 @@ export function ClientsScreen(): JSX.Element {
   );
 
   return (
-    <PageLayout title="Clients" subtitle="Client records for daily operations">
-      <Section>
-        <Toolbar
-          leading={
-            <form
-              className="flex items-center gap-1"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const nextQ = search.trim();
-                setQ(nextQ);
-                setPage(1);
-                updateUrlState({ q: nextQ, page: 1 });
-              }}
-            >
-              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search clients" />
-              <Button type="submit" variant="secondary">
-                Search
-              </Button>
-            </form>
-          }
-          trailing={
-            <Button onClick={onOpenCreate} variant="primary">
-              Add client
-            </Button>
-          }
-        />
-      </Section>
+    <PageLayout
+      title="Clients"
+      subtitle="Fast client directory for daily operations"
+      className="space-y-2"
+      actions={
+        <Button onClick={onOpenCreate} variant="primary">
+          Add client
+        </Button>
+      }
+    >
+      <div className="space-y-1.5">
+        <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by name, phone or email" />
 
-      <Section>
         <DataTable
           columns={columns}
           rows={rows}
           getRowId={(row) => row.id}
+          onRowClick={(row) => {
+            router.push(ROUTES.clientDetail(row.id) as Route);
+          }}
           loading={clientsQuery.isLoading}
           error={clientsQuery.error?.message}
           onRetry={() => void clientsQuery.refetch()}
-          emptyTitle="No clients"
-          emptyDescription="Create your first client to start."
+          emptyTitle="No clients yet"
+          emptyDescription="Start by adding your first client."
+          emptyAction={
+            <Button variant="primary" onClick={onOpenCreate}>
+              Add client
+            </Button>
+          }
           rowActions={[
-            {
-              id: "open",
-              label: "Details",
-              onClick: (row) => {
-                router.push(ROUTES.clientDetail(row.id) as Route);
-              }
-            },
             {
               id: "edit",
               label: "Edit",
@@ -245,17 +240,22 @@ export function ClientsScreen(): JSX.Element {
               variant: "secondary"
             }
           ]}
-          pagination={{
-            page,
-            pageSize: PAGE_SIZE,
-            total: clientsQuery.data?.total ?? 0,
-            onPageChange: (nextPage) => {
-              setPage(nextPage);
-              updateUrlState({ q, page: nextPage });
-            }
-          }}
+          tableClassName="min-w-full"
+          pagination={
+            (clientsQuery.data?.total ?? 0) > 0
+              ? {
+                  page,
+                  pageSize: PAGE_SIZE,
+                  total: clientsQuery.data?.total ?? 0,
+                  onPageChange: (nextPage) => {
+                    setPage(nextPage);
+                    updateUrlState({ q, page: nextPage });
+                  }
+                }
+              : undefined
+          }
         />
-      </Section>
+      </div>
 
       <Modal
         open={modalOpen}

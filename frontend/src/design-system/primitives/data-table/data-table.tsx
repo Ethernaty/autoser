@@ -36,6 +36,7 @@ export type DataTableProps<T> = {
   tableClassName?: string;
   density?: "comfortable" | "compact";
   variant?: DataTableVariant;
+  onRowClick?: (row: T) => void;
 };
 
 function nextDirection(current?: SortDirection): SortDirection {
@@ -70,7 +71,8 @@ export function DataTable<T>({
   emptyAction,
   tableClassName,
   density = "compact",
-  variant = "default"
+  variant = "default",
+  onRowClick
 }: DataTableProps<T>): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   useRovingFocus({ container: containerRef, selector: "tbody tr[role='row']" });
@@ -134,6 +136,7 @@ export function DataTable<T>({
                     type="checkbox"
                     aria-label="Select all rows"
                     checked={allSelected}
+                    onClick={(event) => event.stopPropagation()}
                     onChange={(event) => selection.onToggleAll(rowIds, event.target.checked)}
                   />
                 </th>
@@ -236,6 +239,7 @@ export function DataTable<T>({
               ? rows.map((row, index) => {
                   const rowId = getRowId(row);
                   const selected = selection?.selectedIds.has(rowId) ?? false;
+                  const isClickable = Boolean(onRowClick);
 
                   return (
                     <tr
@@ -247,12 +251,31 @@ export function DataTable<T>({
                         "group border-b transition-colors",
                         rowBorderClass,
                         strongVariant ? "hover:bg-neutral-50/80" : "hover:bg-neutral-50",
+                        isClickable && "cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/35",
+                        isClickable && (strongVariant ? "hover:bg-primary/5" : "hover:bg-primary/5"),
                         selected && "bg-primary/5"
                       )}
+                      onClick={isClickable ? () => onRowClick?.(row) : undefined}
+                      onKeyDown={
+                        isClickable
+                          ? (event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                onRowClick?.(row);
+                              }
+                            }
+                          : undefined
+                      }
                     >
                       {selection ? (
                         <td className={cn("border-b px-3 align-middle", rowBorderClass)}>
-                          <input aria-label={`Select row ${rowId}`} type="checkbox" checked={selected} onChange={() => selection.onToggle(rowId)} />
+                          <input
+                            aria-label={`Select row ${rowId}`}
+                            type="checkbox"
+                            checked={selected}
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={() => selection.onToggle(rowId)}
+                          />
                         </td>
                       ) : null}
                       {columns.map((column) => (
@@ -275,7 +298,10 @@ export function DataTable<T>({
                                   size="sm"
                                   variant={action.variant ?? "ghost"}
                                   className="h-8"
-                                  onClick={() => action.onClick(row)}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    action.onClick(row);
+                                  }}
                                   disabled={action.disabled ? action.disabled(row) : false}
                                 >
                                   {action.label}

@@ -11,6 +11,7 @@ export const ROUTES = {
   employees: "/app/employees",
   profile: "/app/profile",
   workOrders: "/app/work-orders",
+  workOrderNew: "/app/work-orders/new",
   workOrderDetail: (workOrderId: string) => `/app/work-orders/${workOrderId}`,
   settings: "/app/settings",
   orders: "/app/orders",

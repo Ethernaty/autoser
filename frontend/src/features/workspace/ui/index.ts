@@ -5,6 +5,7 @@ export * from "@/features/workspace/ui/vehicles-screen";
 export * from "@/features/workspace/ui/vehicle-detail-screen";
 export * from "@/features/workspace/ui/employees-screen";
 export * from "@/features/workspace/ui/orders-screen";
+export * from "@/features/workspace/ui/work-order-intake-screen";
 export * from "@/features/workspace/ui/work-order-detail-screen";
 export * from "@/features/workspace/ui/workspace-settings-screen";
 export * from "@/features/workspace/ui/order-status-badge";

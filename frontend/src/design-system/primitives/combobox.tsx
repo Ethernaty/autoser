@@ -23,6 +23,7 @@ type ComboboxProps = {
   disabled?: boolean;
   className?: string;
   name?: string;
+  size?: "sm" | "md";
 };
 
 export function Combobox({
@@ -35,7 +36,8 @@ export function Combobox({
   emptyText = "No options found",
   disabled = false,
   className,
-  name
+  name,
+  size = "md"
 }: ComboboxProps): JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -88,7 +90,8 @@ export function Combobox({
         onClick={() => !disabled && setOpen((current) => !current)}
         disabled={disabled}
         className={cn(
-          "flex h-[36px] w-full items-center justify-between rounded-md border border-neutral-300 bg-neutral-0 px-3 text-left text-sm text-neutral-900",
+          "flex w-full items-center justify-between rounded-md border border-neutral-300 bg-neutral-0 px-3 text-left text-sm text-neutral-900",
+          size === "sm" ? "h-8" : "h-9",
           "transition-colors hover:border-neutral-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35",
           "disabled:pointer-events-none disabled:opacity-50"
         )}
@@ -103,7 +106,7 @@ export function Combobox({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={searchPlaceholder}
-            className="h-[32px]"
+            className={size === "sm" ? "h-8" : "h-9"}
             autoFocus
           />
           <div className="mt-2 max-h-[232px] overflow-auto rounded-md border border-neutral-200 bg-neutral-50 p-1">
