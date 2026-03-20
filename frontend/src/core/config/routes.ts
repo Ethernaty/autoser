@@ -1,0 +1,20 @@
+export const ROUTES = {
+  root: "/",
+  app: "/app",
+  login: "/login",
+  auth: "/auth",
+  dashboard: "/app/dashboard",
+  clients: "/app/clients",
+  clientDetail: (clientId: string) => `/app/clients/${clientId}`,
+  vehicles: "/app/vehicles",
+  vehicleDetail: (vehicleId: string) => `/app/vehicles/${vehicleId}`,
+  employees: "/app/employees",
+  profile: "/app/profile",
+  workOrders: "/app/work-orders",
+  workOrderDetail: (workOrderId: string) => `/app/work-orders/${workOrderId}`,
+  settings: "/app/settings",
+  orders: "/app/orders",
+  newOrder: "/app/new-order",
+  today: "/app/today",
+  cashDesk: "/app/cash-desk"
+} as const;
