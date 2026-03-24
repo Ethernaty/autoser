@@ -10,6 +10,7 @@ class ClientCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     phone: str = Field(min_length=1, max_length=20)
     email: EmailStr | None = None
+    source: str | None = Field(default=None, max_length=120)
     comment: str | None = Field(default=None, max_length=5000)
 
 
@@ -17,6 +18,7 @@ class ClientUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     phone: str | None = Field(default=None, min_length=1, max_length=20)
     email: EmailStr | None = None
+    source: str | None = Field(default=None, max_length=120)
     comment: str | None = Field(default=None, max_length=5000)
     version: int | None = Field(default=None, ge=1)
 
@@ -29,6 +31,7 @@ class ClientResponse(BaseModel):
     name: str
     phone: str
     email: str | None
+    source: str | None
     comment: str | None
     version: int
     created_at: datetime

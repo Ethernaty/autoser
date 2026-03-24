@@ -67,6 +67,7 @@ class ClientService(BaseService):
         name: str,
         phone: str,
         email: str | None = None,
+        source: str | None = None,
         comment: str | None = None,
         idempotency_key: str | None = None,
     ) -> Client:
@@ -75,6 +76,7 @@ class ClientService(BaseService):
         normalized_name = self._normalize_required_string(name, field="name", max_length=200)
         normalized_phone = self._normalize_phone(phone)
         normalized_email = self._normalize_email(email)
+        normalized_source = self._normalize_optional_string(source, max_length=120)
         normalized_comment = self._normalize_optional_string(comment, max_length=5000)
 
         idempotency_decision: IdempotencyDecision | None = None
@@ -84,6 +86,7 @@ class ClientService(BaseService):
                     "name": normalized_name,
                     "phone": normalized_phone,
                     "email": normalized_email,
+                    "source": normalized_source,
                     "comment": normalized_comment,
                 }
             )
@@ -105,6 +108,7 @@ class ClientService(BaseService):
                 name=normalized_name,
                 phone=normalized_phone,
                 email=normalized_email,
+                source=normalized_source,
                 comment=normalized_comment,
             )
             return self._client_to_payload(client)
@@ -140,6 +144,7 @@ class ClientService(BaseService):
         name: str | None = None,
         phone: str | None = None,
         email: str | None = None,
+        source: str | None = None,
         comment: str | None = None,
         expected_version: int | None = None,
     ) -> Client:
@@ -152,6 +157,8 @@ class ClientService(BaseService):
             updates["phone"] = self._normalize_phone(phone)
         if email is not None:
             updates["email"] = self._normalize_email(email)
+        if source is not None:
+            updates["source"] = self._normalize_optional_string(source, max_length=120)
         if comment is not None:
             updates["comment"] = self._normalize_optional_string(comment, max_length=5000)
 
@@ -508,6 +515,7 @@ class ClientService(BaseService):
             "name": client.name,
             "phone": client.phone,
             "email": client.email,
+            "source": client.source,
             "comment": client.comment,
             "version": client.version,
             "created_at": client.created_at,
@@ -537,6 +545,7 @@ class ClientService(BaseService):
             name=payload["name"],
             phone=payload["phone"],
             email=payload.get("email"),
+            source=payload.get("source"),
             comment=payload.get("comment"),
             version=int(payload["version"]),
             created_at=created_at,

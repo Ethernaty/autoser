@@ -24,4 +24,5 @@ class WorkspaceSettingsRepository(BaseRepositoryTenantScoped[WorkspaceSettings])
                 continue
             setattr(entity, field, value)
         self.db.flush()
+        self.db.refresh(entity)
         return entity

@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
     name?: string;
     phone?: string;
     email?: string | null;
+    source?: string | null;
     comment?: string | null;
   };
 
@@ -42,6 +43,7 @@ export async function POST(request: NextRequest) {
       name?: string;
       phone?: string;
       email?: string | null;
+      source?: string | null;
       comment?: string | null;
     };
   } catch {
@@ -61,6 +63,7 @@ export async function POST(request: NextRequest) {
         name: payload.name!.trim(),
         phone: payload.phone!.trim(),
         email: payload.email ?? null,
+        source: payload.source ?? null,
         comment: payload.comment ?? null
       },
       { idempotencyKey }

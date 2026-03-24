@@ -46,6 +46,7 @@ class OrderRepository(BaseRepositoryTenantScoped[Order]):
                 continue
             setattr(order, field, value)
         self.db.flush()
+        self.db.refresh(order)
         return order
 
     def count(self, *, query: str | None = None) -> int:

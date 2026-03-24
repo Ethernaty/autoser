@@ -16,9 +16,11 @@ export async function POST(
     return originError;
   }
 
-  let payload: { status?: "new" | "in_progress" | "completed" | "canceled" };
+  let payload: { status?: "new" | "in_progress" | "completed_unpaid" | "completed_paid" | "cancelled" };
   try {
-    payload = (await request.json()) as { status?: "new" | "in_progress" | "completed" | "canceled" };
+    payload = (await request.json()) as {
+      status?: "new" | "in_progress" | "completed_unpaid" | "completed_paid" | "cancelled";
+    };
   } catch {
     return NextResponse.json({ message: "Invalid request payload" }, { status: 400 });
   }

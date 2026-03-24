@@ -18,6 +18,7 @@ from app.models.membership import Membership, MembershipRole
 from app.models.order import Order, OrderStatus
 from app.models.order_line import OrderLine, OrderLineType
 from app.models.payment import Payment, PaymentMethod
+from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.client_repository import ClientRepository
 from app.repositories.order_line_repository import OrderLineRepository
 from app.repositories.order_repository import OrderRepository
@@ -29,6 +30,14 @@ from app.services.base_service import BaseService
 
 
 _MONEY_QUANT = Decimal("0.01")
+_WORK_ORDER_TIMELINE_ACTIONS = {
+    "work_order_created",
+    "work_order_status_changed",
+    "work_order_total_amount_changed",
+    "work_order_lines_changed",
+    "work_order_payment_recorded",
+    "work_order_cancelled",
+}
 
 
 @dataclass(frozen=True)
@@ -109,7 +118,7 @@ class WorkOrderService(BaseService):
             self._assert_assignee_valid(db=db, assigned_user_id=assigned_user_id)
 
             repo = OrderRepository(db=db, tenant_id=self.tenant_id)
-            return repo.create(
+            order = repo.create(
                 client_id=client_id,
                 vehicle_id=vehicle_id,
                 assigned_user_id=assigned_user_id,
@@ -117,6 +126,19 @@ class WorkOrderService(BaseService):
                 total_amount=normalized_total,
                 status=normalized_status,
             )
+            self._write_work_order_event(
+                db=db,
+                work_order_id=order.id,
+                action="work_order_created",
+                message="Work order created",
+                metadata={
+                    "status": normalized_status.value,
+                    "total_amount": str(normalized_total),
+                    "client_id": str(client_id),
+                    "vehicle_id": str(vehicle_id),
+                },
+            )
+            return order
 
         return await self.execute_write(write_op, idempotent=False)
 
@@ -146,14 +168,25 @@ class WorkOrderService(BaseService):
         if not updates:
             raise AppError(status_code=400, code="empty_update", message="No fields provided for update")
 
-        def write_op(db: Session) -> Order:
+        def write_op(db: Session) -> UUID:
             repo = OrderRepository(db=db, tenant_id=self.tenant_id)
             current = repo.get_by_id(work_order_id)
             if current is None:
                 raise AppError(status_code=404, code="work_order_not_found", message="Work order not found")
 
+            previous_status = current.status
+            previous_total_amount = Decimal(current.total_amount).quantize(_MONEY_QUANT)
             if "status" in updates and isinstance(updates["status"], OrderStatus):
                 self._assert_status_transition(current=current.status, target=updates["status"])  # type: ignore[arg-type]
+                if updates["status"] == OrderStatus.COMPLETED_PAID:
+                    financials = self._financials_in_tx(db=db, order=current)
+                    if financials.remaining_amount > Decimal("0.00"):
+                        raise AppError(
+                            status_code=400,
+                            code="cannot_mark_completed_paid",
+                            message="Work order cannot be marked completed_paid while remaining amount is greater than zero",
+                            details={"remaining_amount": str(financials.remaining_amount)},
+                        )
             if "vehicle_id" in updates:
                 self._assert_vehicle_link(db=db, client_id=current.client_id, vehicle_id=updates["vehicle_id"])  # type: ignore[arg-type]
             if "assigned_user_id" in updates:
@@ -162,16 +195,55 @@ class WorkOrderService(BaseService):
             updated = repo.update(work_order_id, **updates)
             if updated is None:
                 raise AppError(status_code=404, code="work_order_not_found", message="Work order not found")
-            return updated
 
-        return await self.execute_write(write_op, idempotent=False)
+            if "status" in updates and previous_status != updated.status:
+                new_status = updated.status
+                self._write_work_order_event(
+                    db=db,
+                    work_order_id=work_order_id,
+                    action="work_order_status_changed",
+                    message=f"Status changed from {previous_status.value} to {new_status.value}",
+                    metadata={"from_status": previous_status.value, "to_status": new_status.value},
+                )
+                if new_status == OrderStatus.CANCELLED:
+                    self._write_work_order_event(
+                        db=db,
+                        work_order_id=work_order_id,
+                        action="work_order_cancelled",
+                        message="Work order cancelled",
+                        metadata={"from_status": previous_status.value},
+                    )
+
+            if "total_amount" in updates:
+                new_total_amount = Decimal(updated.total_amount).quantize(_MONEY_QUANT)
+                if previous_total_amount != new_total_amount:
+                    self._write_work_order_event(
+                        db=db,
+                        work_order_id=work_order_id,
+                        action="work_order_total_amount_changed",
+                        message=f"Total amount changed from {previous_total_amount} to {new_total_amount}",
+                        metadata={
+                            "from_total_amount": str(previous_total_amount),
+                            "to_total_amount": str(new_total_amount),
+                        },
+                    )
+            return updated.id
+
+        updated_id = await self.execute_write(write_op, idempotent=False)
+        return await self.get_work_order(work_order_id=updated_id)
 
     async def set_status(self, *, work_order_id: UUID, status: OrderStatus) -> Order:
         return await self.update_work_order(work_order_id=work_order_id, status=status)
 
     @audit(action="close", entity="work_order")
     async def close_work_order(self, *, work_order_id: UUID) -> Order:
-        return await self.update_work_order(work_order_id=work_order_id, status=OrderStatus.COMPLETED)
+        financials = await self.get_financials(work_order_id=work_order_id)
+        target_status = (
+            OrderStatus.COMPLETED_PAID
+            if financials.remaining_amount <= Decimal("0.00")
+            else OrderStatus.COMPLETED_UNPAID
+        )
+        return await self.update_work_order(work_order_id=work_order_id, status=target_status)
 
     @audit(action="delete", entity="work_order")
     async def delete_work_order(self, *, work_order_id: UUID) -> None:
@@ -184,7 +256,7 @@ class WorkOrderService(BaseService):
 
     @audit(action="update", entity="work_order")
     async def assign_employee(self, *, work_order_id: UUID, assigned_user_id: UUID | None) -> Order:
-        def write_op(db: Session) -> Order:
+        def write_op(db: Session) -> UUID:
             repo = OrderRepository(db=db, tenant_id=self.tenant_id)
             current = repo.get_by_id(work_order_id)
             if current is None:
@@ -193,13 +265,14 @@ class WorkOrderService(BaseService):
             updated = repo.update(work_order_id, assigned_user_id=assigned_user_id)
             if updated is None:
                 raise AppError(status_code=404, code="work_order_not_found", message="Work order not found")
-            return updated
+            return updated.id
 
-        return await self.execute_write(write_op, idempotent=False)
+        updated_id = await self.execute_write(write_op, idempotent=False)
+        return await self.get_work_order(work_order_id=updated_id)
 
     @audit(action="update", entity="work_order")
     async def attach_vehicle(self, *, work_order_id: UUID, vehicle_id: UUID) -> Order:
-        def write_op(db: Session) -> Order:
+        def write_op(db: Session) -> UUID:
             repo = OrderRepository(db=db, tenant_id=self.tenant_id)
             current = repo.get_by_id(work_order_id)
             if current is None:
@@ -208,9 +281,10 @@ class WorkOrderService(BaseService):
             updated = repo.update(work_order_id, vehicle_id=vehicle_id)
             if updated is None:
                 raise AppError(status_code=404, code="work_order_not_found", message="Work order not found")
-            return updated
+            return updated.id
 
-        return await self.execute_write(write_op, idempotent=False)
+        updated_id = await self.execute_write(write_op, idempotent=False)
+        return await self.get_work_order(work_order_id=updated_id)
 
     async def list_order_lines(self, *, work_order_id: UUID) -> list[OrderLine]:
         def read_op(db: Session) -> list[OrderLine]:
@@ -242,6 +316,7 @@ class WorkOrderService(BaseService):
         def write_op(db: Session) -> OrderLine:
             order = self._assert_order_exists(db=db, work_order_id=work_order_id)
             self._assert_order_lines_editable(order.status)
+            previous_total = Decimal(order.total_amount).quantize(_MONEY_QUANT)
 
             repo = OrderLineRepository(db=db, tenant_id=self.tenant_id)
             line = repo.create(
@@ -254,7 +329,34 @@ class WorkOrderService(BaseService):
                 position=max(0, int(position or 0)),
                 comment=normalized_comment,
             )
-            self._recalculate_total_in_tx(db=db, work_order_id=work_order_id)
+            new_total = self._recalculate_total_in_tx(db=db, work_order_id=work_order_id)
+            self._write_work_order_event(
+                db=db,
+                work_order_id=work_order_id,
+                action="work_order_lines_changed",
+                message=f"Added line '{normalized_name}' ({normalized_line_type.value})",
+                metadata={
+                    "change_type": "line_added",
+                    "line_id": str(line.id),
+                    "line_name": normalized_name,
+                    "line_type": normalized_line_type.value,
+                    "from_total_amount": str(previous_total),
+                    "to_total_amount": str(new_total),
+                },
+            )
+            if previous_total != new_total:
+                self._write_work_order_event(
+                    db=db,
+                    work_order_id=work_order_id,
+                    action="work_order_total_amount_changed",
+                    message=f"Total amount changed from {previous_total} to {new_total}",
+                    metadata={
+                        "from_total_amount": str(previous_total),
+                        "to_total_amount": str(new_total),
+                        "reason": "order_line_added",
+                        "line_id": str(line.id),
+                    },
+                )
             return line
 
         return await self.execute_write(write_op, idempotent=False)
@@ -275,6 +377,7 @@ class WorkOrderService(BaseService):
         def write_op(db: Session) -> OrderLine:
             order = self._assert_order_exists(db=db, work_order_id=work_order_id)
             self._assert_order_lines_editable(order.status)
+            previous_total = Decimal(order.total_amount).quantize(_MONEY_QUANT)
             repo = OrderLineRepository(db=db, tenant_id=self.tenant_id)
             line = repo.get_by_id(line_id)
             if line is None or line.order_id != work_order_id:
@@ -301,7 +404,33 @@ class WorkOrderService(BaseService):
             if updated is None:
                 raise AppError(status_code=404, code="order_line_not_found", message="Order line not found")
 
-            self._recalculate_total_in_tx(db=db, work_order_id=work_order_id)
+            new_total = self._recalculate_total_in_tx(db=db, work_order_id=work_order_id)
+            self._write_work_order_event(
+                db=db,
+                work_order_id=work_order_id,
+                action="work_order_lines_changed",
+                message=f"Updated line '{updated.name}'",
+                metadata={
+                    "change_type": "line_updated",
+                    "line_id": str(updated.id),
+                    "line_name": updated.name,
+                    "from_total_amount": str(previous_total),
+                    "to_total_amount": str(new_total),
+                },
+            )
+            if previous_total != new_total:
+                self._write_work_order_event(
+                    db=db,
+                    work_order_id=work_order_id,
+                    action="work_order_total_amount_changed",
+                    message=f"Total amount changed from {previous_total} to {new_total}",
+                    metadata={
+                        "from_total_amount": str(previous_total),
+                        "to_total_amount": str(new_total),
+                        "reason": "order_line_updated",
+                        "line_id": str(updated.id),
+                    },
+                )
             return updated
 
         return await self.execute_write(write_op, idempotent=False)
@@ -311,13 +440,41 @@ class WorkOrderService(BaseService):
         def write_op(db: Session) -> None:
             order = self._assert_order_exists(db=db, work_order_id=work_order_id)
             self._assert_order_lines_editable(order.status)
+            previous_total = Decimal(order.total_amount).quantize(_MONEY_QUANT)
             repo = OrderLineRepository(db=db, tenant_id=self.tenant_id)
             line = repo.get_by_id(line_id)
             if line is None or line.order_id != work_order_id:
                 raise AppError(status_code=404, code="order_line_not_found", message="Order line not found")
+            deleted_line_name = line.name
             db.delete(line)
             db.flush()
-            self._recalculate_total_in_tx(db=db, work_order_id=work_order_id)
+            new_total = self._recalculate_total_in_tx(db=db, work_order_id=work_order_id)
+            self._write_work_order_event(
+                db=db,
+                work_order_id=work_order_id,
+                action="work_order_lines_changed",
+                message=f"Removed line '{deleted_line_name}'",
+                metadata={
+                    "change_type": "line_removed",
+                    "line_id": str(line_id),
+                    "line_name": deleted_line_name,
+                    "from_total_amount": str(previous_total),
+                    "to_total_amount": str(new_total),
+                },
+            )
+            if previous_total != new_total:
+                self._write_work_order_event(
+                    db=db,
+                    work_order_id=work_order_id,
+                    action="work_order_total_amount_changed",
+                    message=f"Total amount changed from {previous_total} to {new_total}",
+                    metadata={
+                        "from_total_amount": str(previous_total),
+                        "to_total_amount": str(new_total),
+                        "reason": "order_line_removed",
+                        "line_id": str(line_id),
+                    },
+                )
 
         await self.execute_write(write_op, idempotent=False)
 
@@ -356,7 +513,7 @@ class WorkOrderService(BaseService):
                 )
 
             repo = PaymentRepository(db=db, tenant_id=self.tenant_id)
-            return repo.create(
+            payment = repo.create(
                 order_id=work_order_id,
                 created_by_user_id=self.actor_user_id,
                 amount=normalized_amount,
@@ -365,6 +522,36 @@ class WorkOrderService(BaseService):
                 comment=normalized_comment,
                 external_ref=normalized_external_ref,
             )
+            post_payment_financials = self._financials_in_tx(db=db, order=order)
+            self._write_work_order_event(
+                db=db,
+                work_order_id=work_order_id,
+                action="work_order_payment_recorded",
+                message=f"Payment recorded: {normalized_amount} via {normalized_method.value}",
+                metadata={
+                    "payment_id": str(payment.id),
+                    "amount": str(normalized_amount),
+                    "method": normalized_method.value,
+                    "paid_amount": str(post_payment_financials.paid_amount),
+                    "remaining_amount": str(post_payment_financials.remaining_amount),
+                },
+            )
+
+            if order.status == OrderStatus.COMPLETED_UNPAID and post_payment_financials.remaining_amount <= Decimal("0.00"):
+                order_repo = OrderRepository(db=db, tenant_id=self.tenant_id)
+                order_repo.update(work_order_id, status=OrderStatus.COMPLETED_PAID)
+                self._write_work_order_event(
+                    db=db,
+                    work_order_id=work_order_id,
+                    action="work_order_status_changed",
+                    message=f"Status changed from {OrderStatus.COMPLETED_UNPAID.value} to {OrderStatus.COMPLETED_PAID.value}",
+                    metadata={
+                        "from_status": OrderStatus.COMPLETED_UNPAID.value,
+                        "to_status": OrderStatus.COMPLETED_PAID.value,
+                        "reason": "payment_fully_covered_total",
+                    },
+                )
+            return payment
 
         return await self.execute_write(write_op, idempotent=False)
 
@@ -373,6 +560,18 @@ class WorkOrderService(BaseService):
             self._assert_order_exists(db=db, work_order_id=work_order_id)
             repo = PaymentRepository(db=db, tenant_id=self.tenant_id)
             return repo.list_for_order(order_id=work_order_id)
+
+        return await self.execute_read(read_op)
+
+    async def list_work_order_timeline(self, *, work_order_id: UUID, limit: int = 100, offset: int = 0) -> list[AuditLog]:
+        safe_limit = max(1, min(200, int(limit)))
+        safe_offset = max(0, int(offset))
+
+        def read_op(db: Session) -> list[AuditLog]:
+            self._assert_order_exists(db=db, work_order_id=work_order_id)
+            repo = AuditLogRepository(db=db, tenant_id=self.tenant_id)
+            rows = repo.list_entity_logs(entity="work_order", entity_id=work_order_id, limit=safe_limit, offset=safe_offset)
+            return [item for item in rows if item.action in _WORK_ORDER_TIMELINE_ACTIONS]
 
         return await self.execute_read(read_op)
 
@@ -429,7 +628,7 @@ class WorkOrderService(BaseService):
                 db.execute(
                     select(func.count()).select_from(Order).where(
                         Order.tenant_id == self.tenant_id,
-                        Order.status.in_([OrderStatus.COMPLETED, OrderStatus.CANCELED]),
+                        Order.status.in_([OrderStatus.COMPLETED_UNPAID, OrderStatus.COMPLETED_PAID, OrderStatus.CANCELLED]),
                     )
                 ).scalar_one()
             )
@@ -514,10 +713,11 @@ class WorkOrderService(BaseService):
         if current == target:
             return
         allowed: dict[OrderStatus, set[OrderStatus]] = {
-            OrderStatus.NEW: {OrderStatus.IN_PROGRESS, OrderStatus.CANCELED},
-            OrderStatus.IN_PROGRESS: {OrderStatus.COMPLETED, OrderStatus.CANCELED},
-            OrderStatus.COMPLETED: set(),
-            OrderStatus.CANCELED: set(),
+            OrderStatus.NEW: {OrderStatus.IN_PROGRESS, OrderStatus.CANCELLED},
+            OrderStatus.IN_PROGRESS: {OrderStatus.COMPLETED_UNPAID, OrderStatus.COMPLETED_PAID, OrderStatus.CANCELLED},
+            OrderStatus.COMPLETED_UNPAID: {OrderStatus.COMPLETED_PAID, OrderStatus.CANCELLED},
+            OrderStatus.COMPLETED_PAID: {OrderStatus.CANCELLED},
+            OrderStatus.CANCELLED: set(),
         }
         if target not in allowed.get(current, set()):
             raise AppError(
@@ -528,19 +728,43 @@ class WorkOrderService(BaseService):
             )
 
     def _assert_order_lines_editable(self, status: OrderStatus) -> None:
-        if status in {OrderStatus.COMPLETED, OrderStatus.CANCELED}:
+        if status in {OrderStatus.COMPLETED_UNPAID, OrderStatus.COMPLETED_PAID, OrderStatus.CANCELLED}:
             raise AppError(
                 status_code=400,
                 code="work_order_closed",
                 message="Cannot modify lines for closed work order",
             )
 
-    def _recalculate_total_in_tx(self, *, db: Session, work_order_id: UUID) -> None:
+    def _recalculate_total_in_tx(self, *, db: Session, work_order_id: UUID) -> Decimal:
         line_repo = OrderLineRepository(db=db, tenant_id=self.tenant_id)
         lines = line_repo.list_for_order(order_id=work_order_id)
         total = sum((Decimal(line.line_total) for line in lines), Decimal("0.00")).quantize(_MONEY_QUANT)
         order_repo = OrderRepository(db=db, tenant_id=self.tenant_id)
         order_repo.update(work_order_id, total_amount=total)
+        return total
+
+    def _write_work_order_event(
+        self,
+        *,
+        db: Session,
+        work_order_id: UUID,
+        action: str,
+        message: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        if self.actor_user_id is None:
+            return
+        payload = {"message": message}
+        if metadata:
+            payload.update(metadata)
+        repo = AuditLogRepository(db=db, tenant_id=self.tenant_id)
+        repo.create_log(
+            user_id=self.actor_user_id,
+            action=action,
+            entity="work_order",
+            entity_id=work_order_id,
+            metadata=payload,
+        )
 
     def _financials_in_tx(self, *, db: Session, order: Order) -> WorkOrderFinancials:
         pay_repo = PaymentRepository(db=db, tenant_id=self.tenant_id)

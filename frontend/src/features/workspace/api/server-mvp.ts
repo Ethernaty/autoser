@@ -18,6 +18,7 @@ import type {
   PaymentRecord,
   VehicleCreatePayload,
   VehicleRecord,
+  WorkOrderTimelineEvent,
   VehicleUpdatePayload,
   WorkOrderCreatePayload,
   WorkOrderOrderLine,
@@ -350,6 +351,20 @@ export async function getWorkOrder(context: WorkspaceContext, workOrderId: strin
   });
   assertTenantScope(context, payload.tenant_id, "work_order");
   return payload;
+}
+
+export async function listWorkOrderTimeline(
+  context: WorkspaceContext,
+  workOrderId: string,
+  params: { limit?: number; offset?: number } = {}
+): Promise<WorkOrderTimelineEvent[]> {
+  const query = new URLSearchParams();
+  query.set("limit", String(params.limit ?? 100));
+  query.set("offset", String(params.offset ?? 0));
+  return backendRequest<WorkOrderTimelineEvent[]>(`/work-orders/${workOrderId}/timeline?${query.toString()}`, {
+    method: "GET",
+    headers: authHeader(context)
+  });
 }
 
 export async function createWorkOrder(

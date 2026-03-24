@@ -15,8 +15,9 @@ from app.models.base import BaseModel, TenantScopedMixin
 class OrderStatus(str, Enum):
     NEW = "new"
     IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    CANCELED = "canceled"
+    COMPLETED_UNPAID = "completed_unpaid"
+    COMPLETED_PAID = "completed_paid"
+    CANCELLED = "cancelled"
 
 
 class Order(BaseModel, TenantScopedMixin):

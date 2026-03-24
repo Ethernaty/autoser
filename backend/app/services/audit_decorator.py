@@ -101,7 +101,7 @@ def _resolve_entity_id(*, result: Any, kwargs: dict[str, Any]) -> UUID | None:
 
 
 def _build_metadata(*, kwargs: dict[str, Any]) -> dict[str, Any]:
-    allowed_keys = {"name", "phone", "email", "comment", "expected_version"}
+    allowed_keys = {"name", "phone", "email", "source", "comment", "expected_version"}
     metadata: dict[str, Any] = {}
     for key in allowed_keys:
         if key in kwargs and kwargs[key] is not None:

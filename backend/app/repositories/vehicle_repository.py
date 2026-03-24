@@ -72,4 +72,5 @@ class VehicleRepository(BaseRepositoryTenantScoped[Vehicle]):
                 continue
             setattr(vehicle, field, value)
         self.db.flush()
+        self.db.refresh(vehicle)
         return vehicle

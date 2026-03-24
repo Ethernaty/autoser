@@ -14,6 +14,7 @@ import type {
   PaymentRecord,
   VehicleCreatePayload,
   VehicleRecord,
+  WorkOrderTimelineEvent,
   VehicleUpdatePayload,
   WorkOrderCreatePayload,
   WorkOrderOrderLine,
@@ -39,6 +40,8 @@ export const mvpQueryKeys = {
   employee: (employeeId: string) => ["employees", "detail", employeeId] as const,
   workOrders: (q: string, limit: number, offset: number) => ["work-orders", q, limit, offset] as const,
   workOrder: (workOrderId: string) => ["work-orders", "detail", workOrderId] as const,
+  workOrderTimeline: (workOrderId: string, limit: number, offset: number) =>
+    ["work-orders", workOrderId, "timeline", limit, offset] as const,
   workOrderLines: (workOrderId: string) => ["work-orders", workOrderId, "lines"] as const,
   workOrderPayments: (workOrderId: string) => ["work-orders", workOrderId, "payments"] as const
 };
@@ -190,6 +193,19 @@ export async function fetchWorkOrders(params: { q?: string; limit?: number; offs
 
 export async function fetchWorkOrder(workOrderId: string): Promise<WorkOrderRecord> {
   const response = await apiClient.get<WorkOrderRecord>(`/api/workspace/work-orders/${workOrderId}`);
+  return response.data;
+}
+
+export async function fetchWorkOrderTimeline(
+  workOrderId: string,
+  params?: { limit?: number; offset?: number }
+): Promise<WorkOrderTimelineEvent[]> {
+  const response = await apiClient.get<WorkOrderTimelineEvent[]>(`/api/workspace/work-orders/${workOrderId}/timeline`, {
+    params: {
+      limit: params?.limit ?? 100,
+      offset: params?.offset ?? 0
+    }
+  });
   return response.data;
 }
 

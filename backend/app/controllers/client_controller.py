@@ -43,6 +43,7 @@ async def create_client(
         name=payload.name,
         phone=payload.phone,
         email=str(payload.email) if payload.email else None,
+        source=payload.source,
         comment=payload.comment,
         idempotency_key=idempotency_key,
     )
@@ -113,6 +114,7 @@ async def update_client(
         name=payload.name,
         phone=payload.phone,
         email=str(payload.email) if payload.email else payload.email,
+        source=payload.source,
         comment=payload.comment,
         expected_version=payload.version,
     )

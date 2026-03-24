@@ -12,7 +12,7 @@ from app.repositories.base import BaseRepositoryTenantScoped
 class ClientRepository(BaseRepositoryTenantScoped[Client]):
     """Data-access layer for tenant-scoped clients."""
 
-    ALLOWED_UPDATE_FIELDS = {"name", "phone", "email", "comment"}
+    ALLOWED_UPDATE_FIELDS = {"name", "phone", "email", "source", "comment"}
 
     def __init__(self, db: Session, tenant_id: UUID | None = None):
         super().__init__(db=db, model=Client, tenant_id=tenant_id)
@@ -33,7 +33,7 @@ class ClientRepository(BaseRepositoryTenantScoped[Client]):
         return list(self.db.execute(stmt).scalars().all())
 
     def search(self, query: str, limit: int = 50, offset: int = 0) -> list[Client]:
-        """Search clients by name, phone, and email."""
+        """Search clients by name, phone, email and source."""
         pattern = f"%{query}%"
         stmt = (
             self.scoped_select(
@@ -42,6 +42,7 @@ class ClientRepository(BaseRepositoryTenantScoped[Client]):
                     Client.name.ilike(pattern),
                     Client.phone.ilike(pattern),
                     Client.email.ilike(pattern),
+                    Client.source.ilike(pattern),
                 )
             )
             .order_by(Client.created_at.desc())
@@ -70,6 +71,7 @@ class ClientRepository(BaseRepositoryTenantScoped[Client]):
                 continue
             setattr(client, key, value)
         self.db.flush()
+        self.db.refresh(client)
         return client
 
     def exists_by_phone(self, phone: str, exclude_client_id: UUID | None = None) -> bool:
@@ -97,6 +99,7 @@ class ClientRepository(BaseRepositoryTenantScoped[Client]):
                     Client.name.ilike(pattern),
                     Client.phone.ilike(pattern),
                     Client.email.ilike(pattern),
+                    Client.source.ilike(pattern),
                 )
             )
         return int(self.db.execute(stmt).scalar_one())

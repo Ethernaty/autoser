@@ -22,6 +22,7 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
     name: "",
     phone: "",
     email: "",
+    source: "",
     comment: ""
   });
 
@@ -52,6 +53,7 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
       name: clientQuery.data.name,
       phone: formatPhoneInput(clientQuery.data.phone),
       email: clientQuery.data.email ?? "",
+      source: clientQuery.data.source ?? "",
       comment: clientQuery.data.comment ?? ""
     });
   }, [clientQuery.data]);
@@ -78,6 +80,7 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
                     name: form.name.trim(),
                     phone: normalizePhoneForSubmit(form.phone),
                     email: form.email.trim() || null,
+                    source: form.source.trim() || null,
                     comment: form.comment.trim() || null,
                     version: clientQuery.data!.version
                   });
@@ -91,6 +94,9 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
                 </FormField>
                 <FormField id="email" label="Email">
                   <Input id="email" value={form.email} onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))} />
+                </FormField>
+                <FormField id="source" label="Откуда пришел клиент">
+                  <Input id="source" value={form.source} onChange={(event) => setForm((prev) => ({ ...prev, source: event.target.value }))} />
                 </FormField>
                 <div className="md:col-span-2">
                   <FormField id="comment" label="Comment">

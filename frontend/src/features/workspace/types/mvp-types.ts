@@ -1,4 +1,4 @@
-export type WorkOrderStatus = "new" | "in_progress" | "completed" | "canceled";
+export type WorkOrderStatus = "new" | "in_progress" | "completed_unpaid" | "completed_paid" | "cancelled";
 export type PaymentMethod = "cash" | "card" | "transfer" | "other";
 export type OrderLineType = "labor" | "part" | "misc";
 
@@ -61,6 +61,7 @@ export type ClientRecord = {
   name: string;
   phone: string;
   email: string | null;
+  source: string | null;
   comment: string | null;
   version: number;
   created_at: string;
@@ -71,6 +72,7 @@ export type ClientCreatePayload = {
   name: string;
   phone: string;
   email?: string | null;
+  source?: string | null;
   comment?: string | null;
 };
 
@@ -78,6 +80,7 @@ export type ClientUpdatePayload = {
   name?: string;
   phone?: string;
   email?: string | null;
+  source?: string | null;
   comment?: string | null;
   version?: number;
 };
@@ -225,4 +228,13 @@ export type PaymentCreatePayload = {
   paid_at?: string;
   comment?: string | null;
   external_ref?: string | null;
+};
+
+export type WorkOrderTimelineEvent = {
+  id: string;
+  work_order_id: string;
+  action: string;
+  message: string;
+  user_id: string;
+  created_at: string;
 };

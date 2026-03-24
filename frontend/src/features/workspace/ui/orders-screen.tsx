@@ -44,6 +44,7 @@ type NewClientForm = {
   name: string;
   phone: string;
   email: string;
+  source: string;
   comment: string;
 };
 
@@ -70,6 +71,7 @@ function defaultNewClientForm(): NewClientForm {
     name: "",
     phone: "",
     email: "",
+    source: "",
     comment: ""
   };
 }
@@ -87,8 +89,9 @@ function defaultNewVehicleForm(): NewVehicleForm {
 const STATUS_META: Record<WorkOrderStatus, { label: string; tone: "neutral" | "warning" | "success" | "error" }> = {
   new: { label: "New", tone: "neutral" },
   in_progress: { label: "In progress", tone: "warning" },
-  completed: { label: "Completed", tone: "success" },
-  canceled: { label: "Canceled", tone: "error" }
+  completed_unpaid: { label: "Completed (unpaid)", tone: "warning" },
+  completed_paid: { label: "Completed (paid)", tone: "success" },
+  cancelled: { label: "Cancelled", tone: "error" }
 };
 
 function formatMoney(value: string): string {
@@ -319,7 +322,7 @@ export function OrdersScreen(): JSX.Element {
   });
 
   const statusMutation = useMutation({
-    mutationFn: ({ workOrderId, status }: { workOrderId: string; status: "new" | "in_progress" | "completed" | "canceled" }) =>
+    mutationFn: ({ workOrderId, status }: { workOrderId: string; status: WorkOrderStatus }) =>
       setWorkOrderStatus(workOrderId, status),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["work-orders"] });
@@ -386,7 +389,7 @@ export function OrdersScreen(): JSX.Element {
 
   const queueStats = useMemo(() => {
     const openCount = filteredRows.filter((row) => row.status === "new" || row.status === "in_progress").length;
-    const completedCount = filteredRows.filter((row) => row.status === "completed").length;
+    const completedCount = filteredRows.filter((row) => row.status === "completed_unpaid" || row.status === "completed_paid").length;
     const unassignedCount = filteredRows.filter((row) => !row.assigned_employee_id).length;
     return { openCount, completedCount, unassignedCount };
   }, [filteredRows]);
@@ -476,15 +479,21 @@ export function OrdersScreen(): JSX.Element {
               : row.status === "in_progress"
                 ? {
                     label: "Complete",
-                    onClick: () => statusMutation.mutate({ workOrderId: row.id, status: "completed" }),
+                    onClick: () => statusMutation.mutate({ workOrderId: row.id, status: "completed_unpaid" }),
                     variant: "primary" as const
                   }
-                : row.status === "completed"
+                : row.status === "completed_unpaid"
                   ? {
-                      label: "Close",
-                      onClick: () => closeMutation.mutate(row.id),
+                      label: "Mark paid",
+                      onClick: () => statusMutation.mutate({ workOrderId: row.id, status: "completed_paid" }),
                       variant: "secondary" as const
                     }
+                  : row.status === "completed_paid"
+                    ? {
+                        label: "Close",
+                        onClick: () => closeMutation.mutate(row.id),
+                        variant: "secondary" as const
+                      }
                   : null;
 
           return (
@@ -541,6 +550,7 @@ export function OrdersScreen(): JSX.Element {
     const name = newClientForm.name.trim();
     const phone = normalizePhoneForSubmit(newClientForm.phone);
     const email = newClientForm.email.trim();
+    const source = newClientForm.source.trim();
     const comment = newClientForm.comment.trim();
 
     if (!name || !phone) {
@@ -553,6 +563,7 @@ export function OrdersScreen(): JSX.Element {
       name,
       phone,
       email: email || null,
+      source: source || null,
       comment: comment || null
     });
 
@@ -702,8 +713,9 @@ export function OrdersScreen(): JSX.Element {
               <option value="all">All statuses</option>
               <option value="new">New</option>
               <option value="in_progress">In progress</option>
-              <option value="completed">Completed</option>
-              <option value="canceled">Canceled</option>
+              <option value="completed_unpaid">Completed (unpaid)</option>
+              <option value="completed_paid">Completed (paid)</option>
+              <option value="cancelled">Cancelled</option>
             </Select>
 
             <Select

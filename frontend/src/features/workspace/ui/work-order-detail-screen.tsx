@@ -29,11 +29,12 @@ import {
   fetchWorkOrder,
   fetchWorkOrderLines,
   fetchWorkOrderPayments,
+  fetchWorkOrderTimeline,
   mvpQueryKeys,
   setWorkOrderStatus,
   updateWorkOrderLine
 } from "@/features/workspace/api/mvp-api";
-import type { WorkOrderOrderLine } from "@/features/workspace/types/mvp-types";
+import type { WorkOrderOrderLine, WorkOrderStatus } from "@/features/workspace/types/mvp-types";
 
 function formatMoney(value: string): string {
   const parsed = Number(value);
@@ -41,6 +42,35 @@ function formatMoney(value: string): string {
     return value;
   }
   return parsed.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function statusLabel(status: WorkOrderStatus): string {
+  if (status === "in_progress") {
+    return "In progress";
+  }
+  if (status === "completed_unpaid") {
+    return "Completed (unpaid)";
+  }
+  if (status === "completed_paid") {
+    return "Completed (paid)";
+  }
+  if (status === "cancelled") {
+    return "Cancelled";
+  }
+  return "New";
+}
+
+function statusTone(status: WorkOrderStatus): "neutral" | "warning" | "success" | "error" {
+  if (status === "in_progress" || status === "completed_unpaid") {
+    return "warning";
+  }
+  if (status === "completed_paid") {
+    return "success";
+  }
+  if (status === "cancelled") {
+    return "error";
+  }
+  return "neutral";
 }
 
 export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }): JSX.Element {
@@ -89,6 +119,11 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
     queryFn: () => fetchWorkOrderPayments(workOrderId)
   });
 
+  const timelineQuery = useQuery({
+    queryKey: mvpQueryKeys.workOrderTimeline(workOrderId, 100, 0),
+    queryFn: () => fetchWorkOrderTimeline(workOrderId, { limit: 100, offset: 0 })
+  });
+
   const vehiclesQuery = useQuery({
     queryKey: mvpQueryKeys.vehicles("", "", 300, 0),
     queryFn: () => fetchVehicles({ limit: 300, offset: 0 })
@@ -114,10 +149,11 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
   });
 
   const statusMutation = useMutation({
-    mutationFn: (status: "new" | "in_progress" | "completed" | "canceled") => setWorkOrderStatus(workOrderId, status),
+    mutationFn: (status: WorkOrderStatus) => setWorkOrderStatus(workOrderId, status),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrder(workOrderId) });
       void queryClient.invalidateQueries({ queryKey: ["work-orders"] });
+      void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrderTimeline(workOrderId, 100, 0) });
     }
   });
 
@@ -126,6 +162,7 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrder(workOrderId) });
       void queryClient.invalidateQueries({ queryKey: ["work-orders"] });
+      void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrderTimeline(workOrderId, 100, 0) });
     }
   });
 
@@ -149,6 +186,7 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrderLines(workOrderId) });
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrder(workOrderId) });
+      void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrderTimeline(workOrderId, 100, 0) });
     }
   });
 
@@ -169,6 +207,7 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrderLines(workOrderId) });
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrder(workOrderId) });
+      void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrderTimeline(workOrderId, 100, 0) });
     }
   });
 
@@ -177,6 +216,7 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrderLines(workOrderId) });
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrder(workOrderId) });
+      void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrderTimeline(workOrderId, 100, 0) });
     }
   });
 
@@ -185,6 +225,7 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrderPayments(workOrderId) });
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrder(workOrderId) });
+      void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrderTimeline(workOrderId, 100, 0) });
     }
   });
 
@@ -242,7 +283,7 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
               description={`Created ${new Date(workOrderQuery.data.created_at).toLocaleString()}`}
               actions={
                 <div className="flex items-center gap-1">
-                  <Badge tone="neutral">{workOrderQuery.data.status}</Badge>
+                  <Badge tone={statusTone(workOrderQuery.data.status)}>{statusLabel(workOrderQuery.data.status)}</Badge>
                   <Link href={ROUTES.workOrders}>
                     <Button variant="secondary">Back</Button>
                   </Link>
@@ -283,8 +324,24 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                     <Button variant="secondary" size="sm" onClick={() => statusMutation.mutate("in_progress")} disabled={statusMutation.isPending}>
                       Set in progress
                     </Button>
-                    <Button variant="secondary" size="sm" onClick={() => statusMutation.mutate("completed")} disabled={statusMutation.isPending}>
-                      Set completed
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => statusMutation.mutate("completed_unpaid")}
+                      disabled={statusMutation.isPending}
+                    >
+                      Set completed (unpaid)
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => statusMutation.mutate("completed_paid")}
+                      disabled={statusMutation.isPending}
+                    >
+                      Set completed (paid)
+                    </Button>
+                    <Button variant="destructive" size="sm" onClick={() => statusMutation.mutate("cancelled")} disabled={statusMutation.isPending}>
+                      Cancel
                     </Button>
                     <Button size="sm" onClick={() => closeMutation.mutate()} loading={closeMutation.isPending}>
                       Close work order
@@ -416,6 +473,27 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                 </div>
               ) : (
                 <p className="text-sm text-neutral-600">No payments yet.</p>
+              )}
+            </Section>
+
+            <Section title="Activity timeline" description="Readable history of key work-order changes.">
+              {timelineQuery.isLoading ? (
+                <p className="text-sm text-neutral-600">Loading activity...</p>
+              ) : timelineQuery.error ? (
+                <p className="text-sm text-error">{timelineQuery.error.message}</p>
+              ) : timelineQuery.data?.length ? (
+                <div className="space-y-1">
+                  {timelineQuery.data.map((item) => (
+                    <Card key={item.id} className="border-neutral-200 p-2">
+                      <div className="flex flex-wrap items-start justify-between gap-1">
+                        <p className="text-sm text-neutral-900">{item.message}</p>
+                        <p className="text-xs text-neutral-500">{new Date(item.created_at).toLocaleString()}</p>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-neutral-600">No activity yet.</p>
               )}
             </Section>
           </>

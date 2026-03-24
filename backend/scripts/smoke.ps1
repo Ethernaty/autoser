@@ -152,9 +152,9 @@ Assert-True ($remainingAmount -eq $expectedRemaining) "Remaining amount is incon
 
 Write-Step "Changing status and closing work-order"
 $null = Invoke-Json -Method "POST" -Url "$base/work-orders/$($workOrder.id)/status" -Headers $authHeaders -Body @{ status = "in_progress" }
-$null = Invoke-Json -Method "POST" -Url "$base/work-orders/$($workOrder.id)/status" -Headers $authHeaders -Body @{ status = "completed" }
+$null = Invoke-Json -Method "POST" -Url "$base/work-orders/$($workOrder.id)/status" -Headers $authHeaders -Body @{ status = "completed_unpaid" }
 $closed = Invoke-Json -Method "POST" -Url "$base/work-orders/$($workOrder.id)/close" -Headers $authHeaders
-Assert-True ([string]$closed.status -eq "completed") "Work-order close did not result in completed status"
+Assert-True ([string]$closed.status -eq "completed_unpaid") "Work-order close did not result in completed_unpaid status"
 
 Write-Step "Checking dashboard summary"
 $summary = Invoke-Json -Method "GET" -Url "$base/dashboard/summary?recent_limit=5" -Headers $authHeaders

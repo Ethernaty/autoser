@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     description?: string;
     total_amount?: number;
     assigned_employee_id?: string | null;
-    status?: "new" | "in_progress" | "completed" | "canceled";
+    status?: "new" | "in_progress" | "completed_unpaid" | "completed_paid" | "cancelled";
   };
   try {
     payload = (await request.json()) as {
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
       description?: string;
       total_amount?: number;
       assigned_employee_id?: string | null;
-      status?: "new" | "in_progress" | "completed" | "canceled";
+      status?: "new" | "in_progress" | "completed_unpaid" | "completed_paid" | "cancelled";
     };
   } catch {
     return NextResponse.json({ message: "Invalid request payload" }, { status: 400 });

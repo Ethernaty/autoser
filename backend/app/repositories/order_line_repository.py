@@ -34,6 +34,7 @@ class OrderLineRepository(BaseRepositoryTenantScoped[OrderLine]):
                 continue
             setattr(line, field, value)
         self.db.flush()
+        self.db.refresh(line)
         return line
 
     def delete_for_order(self, *, order_id: UUID) -> None:

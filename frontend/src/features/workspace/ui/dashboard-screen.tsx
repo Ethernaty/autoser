@@ -23,13 +23,13 @@ function formatCurrency(value: string): string {
 }
 
 function statusTone(status: WorkOrderStatus): "neutral" | "warning" | "success" | "error" {
-  if (status === "in_progress") {
+  if (status === "in_progress" || status === "completed_unpaid") {
     return "warning";
   }
-  if (status === "completed") {
+  if (status === "completed_paid") {
     return "success";
   }
-  if (status === "canceled") {
+  if (status === "cancelled") {
     return "error";
   }
   return "neutral";
@@ -39,11 +39,14 @@ function statusLabel(status: WorkOrderStatus): string {
   if (status === "in_progress") {
     return "In progress";
   }
-  if (status === "completed") {
-    return "Completed";
+  if (status === "completed_unpaid") {
+    return "Completed (unpaid)";
   }
-  if (status === "canceled") {
-    return "Canceled";
+  if (status === "completed_paid") {
+    return "Completed (paid)";
+  }
+  if (status === "cancelled") {
+    return "Cancelled";
   }
   return "New";
 }

@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ROUTES } from "@/core/config/routes";
 import { formatPhoneForDisplay, normalizePhoneForSubmit } from "@/core/lib/phone";
 import { cn } from "@/core/lib/utils";
+import { normalizePlateForSubmit, normalizeVinForSubmit } from "@/core/lib/vehicle";
 import { Button, Combobox, FormField, Input, PhoneInput, Select, Textarea } from "@/design-system/primitives";
 import { PageLayout } from "@/design-system/patterns";
 import { createClient, createVehicle, createWorkOrder, fetchClients, fetchEmployees, fetchVehicles, mvpQueryKeys } from "@/features/workspace/api/mvp-api";
@@ -28,6 +29,7 @@ type NewClientForm = {
   name: string;
   phone: string;
   email: string;
+  source: string;
   comment: string;
 };
 
@@ -54,6 +56,7 @@ function defaultNewClientForm(): NewClientForm {
     name: "",
     phone: "",
     email: "",
+    source: "",
     comment: ""
   };
 }
@@ -78,32 +81,10 @@ export function WorkOrderIntakeScreen(): JSX.Element {
 
   const [clientMode, setClientMode] = useState<IntakeMode>("select");
   const [vehicleMode, setVehicleMode] = useState<IntakeMode>("select");
-  const [clientSearch, setClientSearch] = useState("");
-  const [clientLookupQuery, setClientLookupQuery] = useState("");
-  const [vehicleSearch, setVehicleSearch] = useState("");
-  const [vehicleLookupQuery, setVehicleLookupQuery] = useState("");
   const [workOrderForm, setWorkOrderForm] = useState<CreateWorkOrderForm>(defaultWorkOrderForm());
   const [newClientForm, setNewClientForm] = useState<NewClientForm>(defaultNewClientForm());
   const [newVehicleForm, setNewVehicleForm] = useState<NewVehicleForm>(defaultNewVehicleForm());
   const [formError, setFormError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      setClientLookupQuery(clientSearch.trim());
-    }, 200);
-    return () => {
-      window.clearTimeout(timeout);
-    };
-  }, [clientSearch]);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      setVehicleLookupQuery(vehicleSearch.trim());
-    }, 200);
-    return () => {
-      window.clearTimeout(timeout);
-    };
-  }, [vehicleSearch]);
 
   useEffect(() => {
     const previousClientId = prevClientIdRef.current;
@@ -122,15 +103,14 @@ export function WorkOrderIntakeScreen(): JSX.Element {
   }, [workOrderForm.vehicle_id]);
 
   const clientsLookupQuery = useQuery({
-    queryKey: mvpQueryKeys.clients(clientLookupQuery, LOOKUP_LIMIT, 0),
-    queryFn: () => fetchClients({ q: clientLookupQuery, limit: LOOKUP_LIMIT, offset: 0 })
+    queryKey: mvpQueryKeys.clients("", LOOKUP_LIMIT, 0),
+    queryFn: () => fetchClients({ limit: LOOKUP_LIMIT, offset: 0 })
   });
 
   const vehiclesByClientQuery = useQuery({
-    queryKey: mvpQueryKeys.vehicles(vehicleLookupQuery, workOrderForm.client_id, LOOKUP_LIMIT, 0),
+    queryKey: mvpQueryKeys.vehicles("", workOrderForm.client_id, LOOKUP_LIMIT, 0),
     queryFn: () =>
       fetchVehicles({
-        q: vehicleLookupQuery,
         client_id: workOrderForm.client_id || undefined,
         limit: LOOKUP_LIMIT,
         offset: 0
@@ -189,6 +169,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
     const name = newClientForm.name.trim();
     const phone = normalizePhoneForSubmit(newClientForm.phone);
     const email = newClientForm.email.trim();
+    const source = newClientForm.source.trim();
     const comment = newClientForm.comment.trim();
 
     if (!name || !phone) {
@@ -196,11 +177,26 @@ export function WorkOrderIntakeScreen(): JSX.Element {
       return;
     }
 
+    // Guard against duplicate client creation by phone before submit.
+    try {
+      const lookup = await fetchClients({ q: phone, limit: 20, offset: 0 });
+      const duplicate = lookup.items.find((item) => item.phone === phone);
+      if (duplicate) {
+        setFormError(`Client with this phone already exists: ${duplicate.name}. Select it in step 1.`);
+        setClientMode("select");
+        setWorkOrderForm((prev) => ({ ...prev, client_id: duplicate.id, vehicle_id: "" }));
+        return;
+      }
+    } catch {
+      // Do not block form submit if precheck fails; backend remains the source of truth.
+    }
+
     setFormError(null);
     const createdClient = await createClientMutation.mutateAsync({
       name,
       phone,
       email: email || null,
+      source: source || null,
       comment: comment || null
     });
 
@@ -211,8 +207,6 @@ export function WorkOrderIntakeScreen(): JSX.Element {
     }));
     setClientMode("select");
     setVehicleMode("create");
-    setClientSearch(createdClient.name);
-    setVehicleSearch("");
     setNewClientForm(defaultNewClientForm());
   };
 
@@ -222,7 +216,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
       return;
     }
 
-    const plateNumber = newVehicleForm.plate_number.trim();
+    const plateNumber = normalizePlateForSubmit(newVehicleForm.plate_number);
     const makeModel = newVehicleForm.make_model.trim();
     if (!plateNumber || !makeModel) {
       setFormError("Plate number and make/model are required.");
@@ -230,8 +224,33 @@ export function WorkOrderIntakeScreen(): JSX.Element {
     }
 
     const year = newVehicleForm.year.trim();
-    const vin = newVehicleForm.vin.trim();
+    const vin = normalizeVinForSubmit(newVehicleForm.vin);
     const comment = newVehicleForm.comment.trim();
+
+    // Guard against duplicate plate/vin before submit.
+    try {
+      const plateLookup = await fetchVehicles({ q: plateNumber, limit: 50, offset: 0 });
+      const duplicatePlate = plateLookup.items.find((item) => normalizePlateForSubmit(item.plate_number) === plateNumber);
+      if (duplicatePlate) {
+        setFormError(`Vehicle with this plate already exists (${duplicatePlate.plate_number}). Select it in step 2.`);
+        setVehicleMode("select");
+        setWorkOrderForm((prev) => ({ ...prev, vehicle_id: duplicatePlate.id }));
+        return;
+      }
+
+      if (vin) {
+        const vinLookup = await fetchVehicles({ q: vin, limit: 50, offset: 0 });
+        const duplicateVin = vinLookup.items.find((item) => normalizeVinForSubmit(item.vin) === vin);
+        if (duplicateVin) {
+          setFormError(`Vehicle with this VIN already exists (${duplicateVin.plate_number}). Select it in step 2.`);
+          setVehicleMode("select");
+          setWorkOrderForm((prev) => ({ ...prev, vehicle_id: duplicateVin.id }));
+          return;
+        }
+      }
+    } catch {
+      // Do not block submit if precheck fails; backend remains source of truth.
+    }
 
     setFormError(null);
     const createdVehicle = await createVehicleMutation.mutateAsync({
@@ -239,7 +258,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
       plate_number: plateNumber,
       make_model: makeModel,
       year: year ? Number(year) : null,
-      vin: vin || null,
+      vin,
       comment: comment || null
     });
 
@@ -248,7 +267,6 @@ export function WorkOrderIntakeScreen(): JSX.Element {
       vehicle_id: createdVehicle.id
     }));
     setVehicleMode("select");
-    setVehicleSearch(createdVehicle.plate_number);
     setNewVehicleForm(defaultNewVehicleForm());
   };
 
@@ -317,16 +335,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
           </div>
 
           {clientMode === "select" ? (
-            <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2">
-              <FormField id="client-search" label="Find client">
-                <Input
-                  fullHeight="sm"
-                  id="client-search"
-                  value={clientSearch}
-                  onChange={(event) => setClientSearch(event.target.value)}
-                  placeholder="Search by name, phone, email"
-                />
-              </FormField>
+            <div className="grid grid-cols-1 gap-1.5">
               <FormField id="client_id" label="Client" required>
                 <Combobox
                   id="client_id"
@@ -339,12 +348,10 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                       vehicle_id: ""
                     }));
                     setVehicleMode("select");
-                    setVehicleSearch("");
-                    setVehicleLookupQuery("");
                   }}
                   options={clientOptions}
                   placeholder="Select client"
-                  searchPlaceholder="Filter loaded clients"
+                  searchPlaceholder="Search client"
                   emptyText={clientsLookupQuery.isLoading ? "Loading clients..." : "No clients found"}
                 />
               </FormField>
@@ -375,6 +382,14 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                     type="email"
                     value={newClientForm.email}
                     onChange={(event) => setNewClientForm((prev) => ({ ...prev, email: event.target.value }))}
+                  />
+                </FormField>
+                <FormField id="new-client-source" label="Откуда пришел клиент">
+                  <Input
+                    fullHeight="sm"
+                    id="new-client-source"
+                    value={newClientForm.source}
+                    onChange={(event) => setNewClientForm((prev) => ({ ...prev, source: event.target.value }))}
                   />
                 </FormField>
                 <FormField id="new-client-comment" label="Comment">
@@ -426,16 +441,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
           {!isVehicleStepActive ? (
             <p className="text-xs text-neutral-600">Complete step 1 to unlock this section.</p>
           ) : vehicleMode === "select" ? (
-            <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2">
-              <FormField id="vehicle-search" label="Find vehicle">
-                <Input
-                  fullHeight="sm"
-                  id="vehicle-search"
-                  value={vehicleSearch}
-                  onChange={(event) => setVehicleSearch(event.target.value)}
-                  placeholder="Search by plate, model, VIN"
-                />
-              </FormField>
+            <div className="grid grid-cols-1 gap-1.5">
               <FormField id="vehicle_id" label="Vehicle" required>
                 <Combobox
                   id="vehicle_id"
@@ -444,7 +450,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                   onChange={(value) => setWorkOrderForm((prev) => ({ ...prev, vehicle_id: value }))}
                   options={vehicleOptions}
                   placeholder="Select vehicle"
-                  searchPlaceholder="Filter loaded vehicles"
+                  searchPlaceholder="Search vehicle"
                   emptyText={vehiclesByClientQuery.isLoading ? "Loading vehicles..." : "No vehicles found for this client"}
                 />
               </FormField>

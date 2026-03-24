@@ -11,6 +11,7 @@ from app.controllers.schemas.work_order_schemas import (
     OrderLineUpdateRequest,
     PaymentCreateRequest,
     PaymentResponse,
+    WorkOrderTimelineEventResponse,
     WorkOrderAssignRequest,
     WorkOrderAttachVehicleRequest,
     WorkOrderCreateRequest,
@@ -57,6 +58,19 @@ def _to_work_order_response(order, financials: WorkOrderFinancials) -> WorkOrder
         remaining_amount=financials.remaining_amount,
         created_at=order.created_at,
         updated_at=order.updated_at,
+    )
+
+
+def _to_timeline_response(log_item) -> WorkOrderTimelineEventResponse:
+    metadata = log_item.metadata_json if isinstance(log_item.metadata_json, dict) else {}
+    message = metadata.get("message") if isinstance(metadata.get("message"), str) else log_item.action
+    return WorkOrderTimelineEventResponse(
+        id=log_item.id,
+        work_order_id=log_item.entity_id,
+        action=log_item.action,
+        message=message,
+        user_id=log_item.user_id,
+        created_at=log_item.created_at,
     )
 
 
@@ -307,6 +321,21 @@ async def list_work_order_payments(
 ) -> list[PaymentResponse]:
     items = await service.list_payments(work_order_id=work_order_id)
     return [PaymentResponse.model_validate(item) for item in items]
+
+
+@router.get(
+    "/{work_order_id}/timeline",
+    response_model=list[WorkOrderTimelineEventResponse],
+    dependencies=[Depends(RequirePermission("orders", "read"))],
+)
+async def list_work_order_timeline(
+    work_order_id: UUID,
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    service: WorkOrderService = Depends(get_work_order_service),
+) -> list[WorkOrderTimelineEventResponse]:
+    items = await service.list_work_order_timeline(work_order_id=work_order_id, limit=limit, offset=offset)
+    return [_to_timeline_response(item) for item in items]
 
 
 @router.post("/{work_order_id}/payments", response_model=PaymentResponse, dependencies=[Depends(RequirePermission("payments", "create"))])

@@ -35,7 +35,7 @@ export async function PATCH(
   let payload: {
     description?: string;
     total_amount?: number;
-    status?: "new" | "in_progress" | "completed" | "canceled";
+    status?: "new" | "in_progress" | "completed_unpaid" | "completed_paid" | "cancelled";
     vehicle_id?: string;
     assigned_employee_id?: string | null;
   };
@@ -43,7 +43,7 @@ export async function PATCH(
     payload = (await request.json()) as {
       description?: string;
       total_amount?: number;
-      status?: "new" | "in_progress" | "completed" | "canceled";
+      status?: "new" | "in_progress" | "completed_unpaid" | "completed_paid" | "cancelled";
       vehicle_id?: string;
       assigned_employee_id?: string | null;
     };

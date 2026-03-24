@@ -149,3 +149,12 @@ class WorkOrderListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class WorkOrderTimelineEventResponse(BaseModel):
+    id: UUID
+    work_order_id: UUID
+    action: str
+    message: str
+    user_id: UUID
+    created_at: datetime

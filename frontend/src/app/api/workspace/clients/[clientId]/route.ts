@@ -42,6 +42,7 @@ export async function PATCH(
     name?: string;
     phone?: string;
     email?: string | null;
+    source?: string | null;
     comment?: string | null;
     version?: number;
   };
@@ -51,6 +52,7 @@ export async function PATCH(
       name?: string;
       phone?: string;
       email?: string | null;
+      source?: string | null;
       comment?: string | null;
       version?: number;
     };

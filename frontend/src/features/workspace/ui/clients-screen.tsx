@@ -20,6 +20,7 @@ type ClientForm = {
   name: string;
   phone: string;
   email: string;
+  source: string;
   comment: string;
 };
 
@@ -28,6 +29,7 @@ function defaultClientForm(): ClientForm {
     name: "",
     phone: "",
     email: "",
+    source: "",
     comment: ""
   };
 }
@@ -132,6 +134,7 @@ export function ClientsScreen(): JSX.Element {
       name: client.name,
       phone: formatPhoneInput(client.phone),
       email: client.email ?? "",
+      source: client.source ?? "",
       comment: client.comment ?? ""
     });
     setFormError(null);
@@ -145,6 +148,25 @@ export function ClientsScreen(): JSX.Element {
       setFormError("Name and phone are required.");
       return;
     }
+
+    const normalizedPhone = normalizePhoneForSubmit(form.phone);
+    if (!normalizedPhone) {
+      setFormError("Enter a valid phone number.");
+      return;
+    }
+
+    // Guard against duplicate client creation/update by phone before submit.
+    try {
+      const lookup = await fetchClients({ q: normalizedPhone, limit: 20, offset: 0 });
+      const duplicate = lookup.items.find((item) => item.phone === normalizedPhone);
+      if (duplicate && (!editingClient || duplicate.id !== editingClient.id)) {
+        setFormError(`Client with this phone already exists: ${duplicate.name}.`);
+        return;
+      }
+    } catch {
+      // Do not block form submit if precheck fails; backend remains the source of truth.
+    }
+
     setFormError(null);
 
     if (editingClient) {
@@ -152,8 +174,9 @@ export function ClientsScreen(): JSX.Element {
         clientId: editingClient.id,
         payload: {
           name: form.name.trim(),
-          phone: normalizePhoneForSubmit(form.phone),
+          phone: normalizedPhone,
           email: form.email.trim() ? form.email.trim() : null,
+          source: form.source.trim() ? form.source.trim() : null,
           comment: form.comment.trim() ? form.comment.trim() : null,
           version: editingClient.version
         }
@@ -161,8 +184,9 @@ export function ClientsScreen(): JSX.Element {
     } else {
       await createMutation.mutateAsync({
         name: form.name.trim(),
-        phone: normalizePhoneForSubmit(form.phone),
+        phone: normalizedPhone,
         email: form.email.trim() ? form.email.trim() : null,
+        source: form.source.trim() ? form.source.trim() : null,
         comment: form.comment.trim() ? form.comment.trim() : null
       });
     }
@@ -185,7 +209,10 @@ export function ClientsScreen(): JSX.Element {
           return (
             <div className="space-y-0.5">
               <p className="font-semibold text-neutral-900">{row.name}</p>
-              <p className="text-xs text-neutral-600">{secondary}</p>
+              <p className="text-xs text-neutral-600">
+                {secondary}
+                {row.source ? ` | ${row.source}` : ""}
+              </p>
             </div>
           );
         }
@@ -282,6 +309,14 @@ export function ClientsScreen(): JSX.Element {
           </FormField>
           <FormField id="client-email" label="Email">
             <Input id="client-email" value={form.email} onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))} />
+          </FormField>
+          <FormField id="client-source" label="Откуда пришел клиент">
+            <Input
+              id="client-source"
+              value={form.source}
+              onChange={(event) => setForm((prev) => ({ ...prev, source: event.target.value }))}
+              placeholder="Например: Instagram, рекомендация, сайт"
+            />
           </FormField>
           <FormField id="client-comment" label="Comment">
             <Textarea

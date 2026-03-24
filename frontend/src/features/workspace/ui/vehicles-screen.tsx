@@ -7,6 +7,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 
 import { ROUTES } from "@/core/config/routes";
 import { formatPhoneForDisplay } from "@/core/lib/phone";
+import { normalizePlateForSubmit, normalizeVinForSubmit } from "@/core/lib/vehicle";
 import { DataTable } from "@/design-system/primitives/data-table/data-table";
 import type { DataTableColumn } from "@/design-system/primitives/data-table/data-table.types";
 import { Button, FormActions, FormField, Input, Modal, Textarea } from "@/design-system/primitives";
@@ -194,7 +195,10 @@ export function VehiclesScreen(): JSX.Element {
 
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
-    if (!form.plate_number.trim() || !form.make_model.trim()) {
+    const normalizedPlate = normalizePlateForSubmit(form.plate_number);
+    const normalizedVin = normalizeVinForSubmit(form.vin);
+
+    if (!normalizedPlate || !form.make_model.trim()) {
       setFormError("Plate number and make/model are required.");
       return;
     }
@@ -202,26 +206,52 @@ export function VehiclesScreen(): JSX.Element {
       setFormError("Client is required for new vehicle.");
       return;
     }
+
+    // Guard against duplicate plate/vin before submit.
+    try {
+      const plateLookup = await fetchVehicles({ q: normalizedPlate, limit: 50, offset: 0 });
+      const duplicatePlate = plateLookup.items.find(
+        (item) => normalizePlateForSubmit(item.plate_number) === normalizedPlate && (!editingVehicle || item.id !== editingVehicle.id)
+      );
+      if (duplicatePlate) {
+        setFormError(`Vehicle with this plate already exists (${duplicatePlate.plate_number}).`);
+        return;
+      }
+
+      if (normalizedVin) {
+        const vinLookup = await fetchVehicles({ q: normalizedVin, limit: 50, offset: 0 });
+        const duplicateVin = vinLookup.items.find(
+          (item) => normalizeVinForSubmit(item.vin) === normalizedVin && (!editingVehicle || item.id !== editingVehicle.id)
+        );
+        if (duplicateVin) {
+          setFormError(`Vehicle with this VIN already exists (${duplicateVin.plate_number}).`);
+          return;
+        }
+      }
+    } catch {
+      // Do not block submit if precheck fails; backend remains source of truth.
+    }
+
     setFormError(null);
 
     if (editingVehicle) {
       await updateMutation.mutateAsync({
         vehicleId: editingVehicle.id,
         payload: {
-          plate_number: form.plate_number.trim(),
+          plate_number: normalizedPlate,
           make_model: form.make_model.trim(),
           year: form.year ? Number(form.year) : null,
-          vin: form.vin.trim() || null,
+          vin: normalizedVin,
           comment: form.comment.trim() || null
         }
       });
     } else {
       await createMutation.mutateAsync({
         client_id: form.client_id,
-        plate_number: form.plate_number.trim(),
+        plate_number: normalizedPlate,
         make_model: form.make_model.trim(),
         year: form.year ? Number(form.year) : null,
-        vin: form.vin.trim() || null,
+        vin: normalizedVin,
         comment: form.comment.trim() || null
       });
     }
