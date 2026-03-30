@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
@@ -12,6 +12,7 @@ import { normalizePlateForSubmit, normalizeVinForSubmit } from "@/core/lib/vehic
 import { Button, Combobox, FormField, Input, PhoneInput, Select, Textarea } from "@/design-system/primitives";
 import { PageLayout } from "@/design-system/patterns";
 import { createClient, createVehicle, createWorkOrder, fetchClients, fetchEmployees, fetchVehicles, mvpQueryKeys } from "@/features/workspace/api/mvp-api";
+import { useI18n } from "@/shared/i18n";
 
 const LOOKUP_LIMIT = 50;
 
@@ -72,6 +73,7 @@ function defaultNewVehicleForm(): NewVehicleForm {
 }
 
 export function WorkOrderIntakeScreen(): JSX.Element {
+  const { t } = useI18n();
   const router = useRouter();
   const queryClient = useQueryClient();
   const vehicleSectionRef = useRef<HTMLElement | null>(null);
@@ -173,22 +175,21 @@ export function WorkOrderIntakeScreen(): JSX.Element {
     const comment = newClientForm.comment.trim();
 
     if (!name || !phone) {
-      setFormError("Client name and phone are required.");
+      setFormError(t("work_order_intake.error.client_required"));
       return;
     }
 
-    // Guard against duplicate client creation by phone before submit.
     try {
       const lookup = await fetchClients({ q: phone, limit: 20, offset: 0 });
       const duplicate = lookup.items.find((item) => item.phone === phone);
       if (duplicate) {
-        setFormError(`Client with this phone already exists: ${duplicate.name}. Select it in step 1.`);
+        setFormError(t("work_order_intake.error.client_duplicate", { name: duplicate.name }));
         setClientMode("select");
         setWorkOrderForm((prev) => ({ ...prev, client_id: duplicate.id, vehicle_id: "" }));
         return;
       }
     } catch {
-      // Do not block form submit if precheck fails; backend remains the source of truth.
+      // backend remains source of truth
     }
 
     setFormError(null);
@@ -212,14 +213,14 @@ export function WorkOrderIntakeScreen(): JSX.Element {
 
   const onCreateVehicleInline = async (): Promise<void> => {
     if (!workOrderForm.client_id) {
-      setFormError("Select or create a client first.");
+      setFormError(t("work_order_intake.error.select_client_first"));
       return;
     }
 
     const plateNumber = normalizePlateForSubmit(newVehicleForm.plate_number);
     const makeModel = newVehicleForm.make_model.trim();
     if (!plateNumber || !makeModel) {
-      setFormError("Plate number and make/model are required.");
+      setFormError(t("work_order_intake.error.vehicle_required"));
       return;
     }
 
@@ -227,12 +228,11 @@ export function WorkOrderIntakeScreen(): JSX.Element {
     const vin = normalizeVinForSubmit(newVehicleForm.vin);
     const comment = newVehicleForm.comment.trim();
 
-    // Guard against duplicate plate/vin before submit.
     try {
       const plateLookup = await fetchVehicles({ q: plateNumber, limit: 50, offset: 0 });
       const duplicatePlate = plateLookup.items.find((item) => normalizePlateForSubmit(item.plate_number) === plateNumber);
       if (duplicatePlate) {
-        setFormError(`Vehicle with this plate already exists (${duplicatePlate.plate_number}). Select it in step 2.`);
+        setFormError(t("work_order_intake.error.vehicle_duplicate_plate", { plate: duplicatePlate.plate_number }));
         setVehicleMode("select");
         setWorkOrderForm((prev) => ({ ...prev, vehicle_id: duplicatePlate.id }));
         return;
@@ -242,14 +242,14 @@ export function WorkOrderIntakeScreen(): JSX.Element {
         const vinLookup = await fetchVehicles({ q: vin, limit: 50, offset: 0 });
         const duplicateVin = vinLookup.items.find((item) => normalizeVinForSubmit(item.vin) === vin);
         if (duplicateVin) {
-          setFormError(`Vehicle with this VIN already exists (${duplicateVin.plate_number}). Select it in step 2.`);
+          setFormError(t("work_order_intake.error.vehicle_duplicate_vin", { plate: duplicateVin.plate_number }));
           setVehicleMode("select");
           setWorkOrderForm((prev) => ({ ...prev, vehicle_id: duplicateVin.id }));
           return;
         }
       }
     } catch {
-      // Do not block submit if precheck fails; backend remains source of truth.
+      // backend remains source of truth
     }
 
     setFormError(null);
@@ -273,13 +273,13 @@ export function WorkOrderIntakeScreen(): JSX.Element {
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     if (!workOrderForm.client_id || !workOrderForm.vehicle_id || !workOrderForm.description.trim()) {
-      setFormError("Client, vehicle and description are required.");
+      setFormError(t("work_order_intake.error.required"));
       return;
     }
 
     const total = Number(workOrderForm.total_amount);
     if (!Number.isFinite(total) || total <= 0) {
-      setFormError("Total amount must be greater than 0.");
+      setFormError(t("work_order_intake.error.total_amount"));
       return;
     }
 
@@ -302,12 +302,12 @@ export function WorkOrderIntakeScreen(): JSX.Element {
 
   return (
     <PageLayout
-      title="New work order"
-      subtitle="Client -> Vehicle -> Work order"
+      title={t("work_order_intake.title")}
+      subtitle={t("work_order_intake.subtitle")}
       className="space-y-2"
       actions={
         <Button type="button" size="sm" variant="secondary" onClick={() => router.push(ROUTES.workOrders as Route)}>
-          Back to work orders
+          {t("work_order_intake.back")}
         </Button>
       }
     >
@@ -318,25 +318,13 @@ export function WorkOrderIntakeScreen(): JSX.Element {
               <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-neutral-300 text-[11px] font-semibold text-neutral-700">
                 1
               </span>
-              Client
+              {t("common.client")}
             </p>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2 text-xs text-neutral-600"
-              onClick={() => {
-                setClientMode((prev) => (prev === "select" ? "create" : "select"));
-                setFormError(null);
-              }}
-            >
-              {clientMode === "select" ? "Create new client" : "Use existing client"}
-            </Button>
           </div>
 
           {clientMode === "select" ? (
             <div className="grid grid-cols-1 gap-1.5">
-              <FormField id="client_id" label="Client" required>
+              <FormField id="client_id" label={t("common.client")} required>
                 <Combobox
                   id="client_id"
                   size="sm"
@@ -350,16 +338,37 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                     setVehicleMode("select");
                   }}
                   options={clientOptions}
-                  placeholder="Select client"
-                  searchPlaceholder="Search client"
-                  emptyText={clientsLookupQuery.isLoading ? "Loading clients..." : "No clients found"}
+                  placeholder={t("work_order_intake.select_client")}
+                  searchPlaceholder={t("work_order_intake.search_client")}
+                  emptyText={clientsLookupQuery.isLoading ? t("work_order_intake.loading_clients") : t("work_order_intake.no_clients")}
+                  minSearchChars={2}
+                  minSearchText={t("work_order_intake.type_min_chars", { count: 2 })}
+                  actionLabel={t("work_order_intake.create_client")}
+                  onAction={() => {
+                    setClientMode("create");
+                    setFormError(null);
+                  }}
                 />
               </FormField>
             </div>
           ) : (
             <div className="space-y-2">
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs text-neutral-600"
+                  onClick={() => {
+                    setClientMode("select");
+                    setFormError(null);
+                  }}
+                >
+                  {t("work_order_intake.use_existing_client")}
+                </Button>
+              </div>
               <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2">
-                <FormField id="new-client-name" label="Client name" required>
+                <FormField id="new-client-name" label={t("work_order_intake.client_name")} required>
                   <Input
                     fullHeight="sm"
                     id="new-client-name"
@@ -367,7 +376,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                     onChange={(event) => setNewClientForm((prev) => ({ ...prev, name: event.target.value }))}
                   />
                 </FormField>
-                <FormField id="new-client-phone" label="Phone" required>
+                <FormField id="new-client-phone" label={t("common.phone")} required>
                   <PhoneInput
                     fullHeight="sm"
                     id="new-client-phone"
@@ -375,7 +384,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                     onChange={(value) => setNewClientForm((prev) => ({ ...prev, phone: value }))}
                   />
                 </FormField>
-                <FormField id="new-client-email" label="Email">
+                <FormField id="new-client-email" label={t("common.email")}>
                   <Input
                     fullHeight="sm"
                     id="new-client-email"
@@ -384,7 +393,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                     onChange={(event) => setNewClientForm((prev) => ({ ...prev, email: event.target.value }))}
                   />
                 </FormField>
-                <FormField id="new-client-source" label="Откуда пришел клиент">
+                <FormField id="new-client-source" label={t("clients.form.source")}>
                   <Input
                     fullHeight="sm"
                     id="new-client-source"
@@ -392,7 +401,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                     onChange={(event) => setNewClientForm((prev) => ({ ...prev, source: event.target.value }))}
                   />
                 </FormField>
-                <FormField id="new-client-comment" label="Comment">
+                <FormField id="new-client-comment" label={t("common.comment")}>
                   <Input
                     fullHeight="sm"
                     id="new-client-comment"
@@ -403,7 +412,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
               </div>
               <div className="flex justify-end pt-0.5">
                 <Button type="button" size="sm" variant="secondary" loading={createClientMutation.isPending} onClick={() => void onCreateClientInline()}>
-                  Create client and continue
+                  {t("work_order_intake.create_client_continue")}
                 </Button>
               </div>
             </div>
@@ -420,45 +429,50 @@ export function WorkOrderIntakeScreen(): JSX.Element {
               <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-neutral-300 text-[11px] font-semibold text-neutral-700">
                 2
               </span>
-              Vehicle
+              {t("common.vehicle")}
             </p>
-            {isVehicleStepActive ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2 text-xs text-neutral-600"
-                onClick={() => {
-                  setVehicleMode((prev) => (prev === "select" ? "create" : "select"));
-                  setFormError(null);
-                }}
-              >
-                {vehicleMode === "select" ? "Create new vehicle" : "Use existing vehicle"}
-              </Button>
-            ) : null}
           </div>
 
           {!isVehicleStepActive ? (
-            <p className="text-xs text-neutral-600">Complete step 1 to unlock this section.</p>
+            <p className="text-xs text-neutral-600">{t("work_order_intake.complete_step_1")}</p>
           ) : vehicleMode === "select" ? (
             <div className="grid grid-cols-1 gap-1.5">
-              <FormField id="vehicle_id" label="Vehicle" required>
+              <FormField id="vehicle_id" label={t("common.vehicle")} required>
                 <Combobox
                   id="vehicle_id"
                   size="sm"
                   value={workOrderForm.vehicle_id}
                   onChange={(value) => setWorkOrderForm((prev) => ({ ...prev, vehicle_id: value }))}
                   options={vehicleOptions}
-                  placeholder="Select vehicle"
-                  searchPlaceholder="Search vehicle"
-                  emptyText={vehiclesByClientQuery.isLoading ? "Loading vehicles..." : "No vehicles found for this client"}
+                  placeholder={t("work_order_intake.select_vehicle")}
+                  searchPlaceholder={t("work_order_intake.search_vehicle")}
+                  emptyText={vehiclesByClientQuery.isLoading ? t("work_order_intake.loading_vehicles") : t("work_order_intake.no_vehicles")}
+                  actionLabel={t("work_order_intake.create_vehicle")}
+                  onAction={() => {
+                    setVehicleMode("create");
+                    setFormError(null);
+                  }}
                 />
               </FormField>
             </div>
           ) : (
             <div className="space-y-1.5">
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs text-neutral-600"
+                  onClick={() => {
+                    setVehicleMode("select");
+                    setFormError(null);
+                  }}
+                >
+                  {t("work_order_intake.use_existing_vehicle")}
+                </Button>
+              </div>
               <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2">
-                <FormField id="new-vehicle-plate" label="Plate number" required>
+                <FormField id="new-vehicle-plate" label={t("common.plate_number")} required>
                   <Input
                     fullHeight="sm"
                     id="new-vehicle-plate"
@@ -466,7 +480,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                     onChange={(event) => setNewVehicleForm((prev) => ({ ...prev, plate_number: event.target.value }))}
                   />
                 </FormField>
-                <FormField id="new-vehicle-model" label="Make / model" required>
+                <FormField id="new-vehicle-model" label={t("common.make_model")} required>
                   <Input
                     fullHeight="sm"
                     id="new-vehicle-model"
@@ -474,7 +488,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                     onChange={(event) => setNewVehicleForm((prev) => ({ ...prev, make_model: event.target.value }))}
                   />
                 </FormField>
-                <FormField id="new-vehicle-year" label="Year">
+                <FormField id="new-vehicle-year" label={t("common.year")}>
                   <Input
                     fullHeight="sm"
                     id="new-vehicle-year"
@@ -491,7 +505,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                   />
                 </FormField>
               </div>
-              <FormField id="new-vehicle-comment" label="Comment">
+              <FormField id="new-vehicle-comment" label={t("common.comment")}>
                 <Input
                   fullHeight="sm"
                   id="new-vehicle-comment"
@@ -501,7 +515,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
               </FormField>
               <div className="flex justify-end pt-0.5">
                 <Button type="button" size="sm" variant="secondary" loading={createVehicleMutation.isPending} onClick={() => void onCreateVehicleInline()}>
-                  Create vehicle and continue
+                  {t("work_order_intake.create_vehicle_continue")}
                 </Button>
               </div>
             </div>
@@ -517,30 +531,30 @@ export function WorkOrderIntakeScreen(): JSX.Element {
             <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-neutral-300 text-[11px] font-semibold text-neutral-700">
               3
             </span>
-            Work order
+            {t("common.work_order")}
           </p>
 
           {!isWorkOrderStepActive ? (
-            <p className="text-xs text-neutral-600 md:col-span-2">Complete step 2 to unlock this section.</p>
+            <p className="text-xs text-neutral-600 md:col-span-2">{t("work_order_intake.complete_step_2")}</p>
           ) : (
             <>
-              <FormField id="assigned_employee_id" label="Assignee (optional)" className="md:col-span-2">
+              <FormField id="assigned_employee_id" label={t("work_order_intake.assignee_optional")} className="md:col-span-2">
                 <Select
                   className="h-8"
                   id="assigned_employee_id"
                   value={workOrderForm.assigned_employee_id}
                   onChange={(event) => setWorkOrderForm((prev) => ({ ...prev, assigned_employee_id: event.target.value }))}
                 >
-                  <option value="">Unassigned</option>
+                  <option value="">{t("work_orders.unassigned")}</option>
                   {(employeesQuery.data?.items ?? []).map((employee) => (
                     <option key={employee.employee_id} value={employee.employee_id}>
-                      {employee.email} ({employee.role})
+                      {(employee.full_name?.trim() || employee.email)} ({employee.role})
                     </option>
                   ))}
                 </Select>
               </FormField>
 
-              <FormField id="total_amount" label="Total amount" required>
+              <FormField id="total_amount" label={t("work_order_intake.total_amount_label")} required className="md:col-span-2 md:max-w-[280px]">
                 <Input
                   fullHeight="sm"
                   id="total_amount"
@@ -549,9 +563,9 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                   placeholder="0.00"
                 />
               </FormField>
-              <FormField id="description" label="Description" required>
+              <FormField id="description" label={t("work_order_intake.description_label")} required className="md:col-span-2">
                 <Textarea
-                  className="min-h-24"
+                  className="min-h-20"
                   id="description"
                   value={workOrderForm.description}
                   onChange={(event) => setWorkOrderForm((prev) => ({ ...prev, description: event.target.value }))}
@@ -571,10 +585,10 @@ export function WorkOrderIntakeScreen(): JSX.Element {
         <div className="sticky bottom-0 z-10 -mx-1 mt-1 bg-gradient-to-t from-neutral-100/95 via-neutral-100/92 to-transparent px-1 pt-3">
           <div className="flex flex-wrap items-center justify-end gap-2 border-t border-neutral-200 py-2">
             <Button type="button" size="sm" variant="secondary" onClick={() => router.push(ROUTES.workOrders as Route)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" size="sm" variant="primary" loading={createWorkOrderMutation.isPending} disabled={isBusy}>
-              Create work order
+              {t("work_order_intake.submit")}
             </Button>
           </div>
         </div>

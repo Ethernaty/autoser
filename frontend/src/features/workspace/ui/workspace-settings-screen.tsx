@@ -1,6 +1,6 @@
 "use client";
 
-import { ImagePlus, Trash2 } from "lucide-react";
+import { ImageOff, ImagePlus, Moon, Sun, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -15,6 +15,8 @@ import {
 } from "@/features/workspace/api/mvp-api";
 import { getTimezoneOptions } from "@/features/workspace/lib/timezone-options";
 import { AddressAutocompleteField, type AddressSuggestionSelection } from "@/features/workspace/ui/address-autocomplete-field";
+import { useI18n } from "@/shared/i18n";
+import { useTheme } from "@/shared/theme/theme-provider";
 
 type SettingsFormState = {
   service_name: string;
@@ -147,6 +149,8 @@ async function detectTimezoneByCoordinates(latitude: number, longitude: number):
 }
 
 export function WorkspaceSettingsScreen(): JSX.Element {
+  const { locale, setLocale, t } = useI18n();
+  const { theme, setTheme } = useTheme();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const timezonePopoverRef = useRef<HTMLDivElement>(null);
@@ -183,7 +187,7 @@ export function WorkspaceSettingsScreen(): JSX.Element {
   const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null);
   const [logoNotice, setLogoNotice] = useState<string | null>(null);
   const [timezoneManualOverride, setTimezoneManualOverride] = useState(false);
-  const [timezoneHelperText, setTimezoneHelperText] = useState("Detected from selected address.");
+  const [timezoneHelperText, setTimezoneHelperText] = useState("");
   const [detectedTimezone, setDetectedTimezone] = useState<string | null>(null);
   const [timezonePickerOpen, setTimezonePickerOpen] = useState(false);
   const [timezoneDraft, setTimezoneDraft] = useState("UTC");
@@ -204,7 +208,7 @@ export function WorkspaceSettingsScreen(): JSX.Element {
       working_hours_note: settingsQuery.data.working_hours_note ?? ""
     });
     setTimezoneManualOverride(false);
-    setTimezoneHelperText("Detected from selected address.");
+    setTimezoneHelperText(t("settings.timezone.detected"));
     setDetectedTimezone(settingsQuery.data.timezone);
     setTimezoneDraft(settingsQuery.data.timezone);
     setTimezonePickerOpen(false);
@@ -292,24 +296,24 @@ export function WorkspaceSettingsScreen(): JSX.Element {
       const timezoneFromCountry = fallbackTimezoneByCountry(countryCode);
       if (timezoneFromCountry) {
         setDetectedTimezone(timezoneFromCountry);
-        setTimezoneHelperText("Estimated from selected country.");
+        setTimezoneHelperText(t("settings.timezone.estimated_country"));
         if (!timezoneManualOverride) {
           setForm((prev) => ({ ...prev, timezone: timezoneFromCountry }));
         }
       } else {
-        setTimezoneHelperText("Could not detect timezone automatically. Change manually if needed.");
+        setTimezoneHelperText(t("settings.timezone.not_detected"));
       }
       return;
     }
 
-    setTimezoneHelperText("Detecting timezone from selected address...");
+    setTimezoneHelperText(t("settings.timezone.detecting"));
 
     try {
       const timezoneByCoordinates = await detectTimezoneByCoordinates(selection.latitude, selection.longitude);
 
       if (timezoneByCoordinates) {
         setDetectedTimezone(timezoneByCoordinates);
-        setTimezoneHelperText("Detected from selected address.");
+        setTimezoneHelperText(t("settings.timezone.detected"));
         if (!timezoneManualOverride) {
           setForm((prev) => ({ ...prev, timezone: timezoneByCoordinates }));
         }
@@ -319,33 +323,33 @@ export function WorkspaceSettingsScreen(): JSX.Element {
       const timezoneFromCountry = fallbackTimezoneByCountry(countryCode);
       if (timezoneFromCountry) {
         setDetectedTimezone(timezoneFromCountry);
-        setTimezoneHelperText("Timezone service unavailable. Estimated from selected country.");
+        setTimezoneHelperText(t("settings.timezone.estimated_service_unavailable"));
         if (!timezoneManualOverride) {
           setForm((prev) => ({ ...prev, timezone: timezoneFromCountry }));
         }
         return;
       }
 
-      setTimezoneHelperText("Could not detect timezone automatically. Change manually if needed.");
+      setTimezoneHelperText(t("settings.timezone.not_detected"));
     } catch {
       const timezoneFromCountry = fallbackTimezoneByCountry(countryCode);
       if (timezoneFromCountry) {
         setDetectedTimezone(timezoneFromCountry);
-        setTimezoneHelperText("Timezone lookup failed. Estimated from selected country.");
+        setTimezoneHelperText(t("settings.timezone.estimated_lookup_failed"));
         if (!timezoneManualOverride) {
           setForm((prev) => ({ ...prev, timezone: timezoneFromCountry }));
         }
         return;
       }
 
-      setTimezoneHelperText("Could not detect timezone automatically. Change manually if needed.");
+      setTimezoneHelperText(t("settings.timezone.not_detected"));
     }
   };
 
   return (
     <PageLayout
-      title="Workspace settings"
-      subtitle={contextQuery.data ? `${contextQuery.data.workspace_name} (${contextQuery.data.workspace_slug})` : "Workspace"}
+      title={t("settings.title")}
+      subtitle={contextQuery.data ? `${contextQuery.data.workspace_name} (${contextQuery.data.workspace_slug})` : t("profile.workspace")}
     >
       <StateBoundary
         loading={settingsQuery.isLoading || contextQuery.isLoading}
@@ -360,15 +364,15 @@ export function WorkspaceSettingsScreen(): JSX.Element {
               setLogoNotice(null);
 
               if (!form.service_name.trim() || !form.phone.trim()) {
-                setFormError("Service name and phone are required.");
+                setFormError(t("settings.error.required_service_phone"));
                 return;
               }
               if (!timezoneExists) {
-                setFormError("Timezone value is not valid.");
+                setFormError(t("settings.error.invalid_timezone"));
                 return;
               }
               if (!form.currency.trim()) {
-                setFormError("Currency is required.");
+                setFormError(t("settings.error.required_currency"));
                 return;
               }
 
@@ -384,7 +388,7 @@ export function WorkspaceSettingsScreen(): JSX.Element {
                 {
                   onSuccess: () => {
                     if (logoFile) {
-                      setLogoNotice("Logo selected locally. Backend upload endpoint is required to persist logo.");
+                      setLogoNotice(t("settings.logo.notice_backend_required"));
                     }
                   }
                 }
@@ -393,33 +397,38 @@ export function WorkspaceSettingsScreen(): JSX.Element {
           >
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-200 bg-neutral-50 px-4 py-3">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">Configuration center</p>
-                <p className="mt-1 text-sm text-neutral-700">Workspace profile, regional defaults and operator notes.</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">{t("settings.center_label")}</p>
+                <p className="mt-1 text-sm text-neutral-700">{t("settings.center_description")}</p>
               </div>
-              <p className="text-xs text-neutral-600">Updated {formatDateTime(settingsQuery.data.updated_at)}</p>
+              <p className="text-xs text-neutral-600">
+                {t("settings.updated_at", { value: formatDateTime(settingsQuery.data.updated_at) })}
+              </p>
             </div>
 
             <div className="mx-auto w-full max-w-[920px] space-y-4 p-4">
               <section className="space-y-3 rounded-md border border-neutral-200 p-4">
                 <div>
-                  <h2 className="text-[16px] font-semibold text-neutral-900">Business profile</h2>
-                  <p className="mt-1 text-sm text-neutral-600">Core contact identity shown in operational screens and documents.</p>
+                  <h2 className="text-[16px] font-semibold text-neutral-900">{t("settings.business.title")}</h2>
+                  <p className="mt-1 text-sm text-neutral-600">{t("settings.business.description")}</p>
                 </div>
 
                 <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3">
                   <div className="flex flex-wrap items-center gap-3">
-                    <div className="h-[56px] w-[56px] overflow-hidden rounded-md border border-neutral-200 bg-neutral-0">
+                    <div className="h-[64px] w-[64px] overflow-hidden rounded-md border border-neutral-200 bg-neutral-0">
                       {logoPreviewUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={logoPreviewUrl} alt="Workspace logo preview" className="h-full w-full object-cover" />
+                        <img src={logoPreviewUrl} alt={t("settings.logo.alt")} className="h-full w-full object-cover" />
                       ) : (
-                        <div className="flex h-full w-full items-center justify-center text-xs font-medium text-neutral-500">No logo</div>
+                        <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-neutral-500">
+                          <ImageOff className="h-4 w-4" />
+                          <span className="text-[9px] font-medium leading-none tracking-wide">{t("settings.logo.none")}</span>
+                        </div>
                       )}
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-neutral-800">Workspace logo</p>
-                      <p className="text-xs text-neutral-600">PNG, JPG or SVG. Recommended square image.</p>
+                      <p className="text-sm font-medium text-neutral-800">{t("settings.logo.title")}</p>
+                      <p className="text-xs text-neutral-600">{t("settings.logo.description")}</p>
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -442,7 +451,7 @@ export function WorkspaceSettingsScreen(): JSX.Element {
                         }}
                       >
                         <ImagePlus className="h-4 w-4" />
-                        {logoFile ? "Replace" : "Upload"}
+                        {logoFile ? t("settings.logo.replace") : t("settings.logo.upload")}
                       </Button>
                       {logoFile ? (
                         <Button
@@ -456,7 +465,7 @@ export function WorkspaceSettingsScreen(): JSX.Element {
                           }}
                         >
                           <Trash2 className="h-4 w-4" />
-                          Remove
+                          {t("common.remove")}
                         </Button>
                       ) : null}
                     </div>
@@ -464,7 +473,7 @@ export function WorkspaceSettingsScreen(): JSX.Element {
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <FormField id="service_name" label="Service name" required>
+                  <FormField id="service_name" label={t("settings.business.service_name")} required>
                     <Input
                       id="service_name"
                       className="h-[36px]"
@@ -472,7 +481,7 @@ export function WorkspaceSettingsScreen(): JSX.Element {
                       onChange={(event) => setForm((prev) => ({ ...prev, service_name: event.target.value }))}
                     />
                   </FormField>
-                  <FormField id="phone" label="Phone" required hint="Primary service desk contact">
+                  <FormField id="phone" label={t("common.phone")} required hint={t("settings.business.phone_hint")}>
                     <PhoneInput
                       id="phone"
                       className="h-[36px]"
@@ -484,14 +493,14 @@ export function WorkspaceSettingsScreen(): JSX.Element {
 
                 <div className="space-y-3 rounded-md border border-neutral-200 bg-neutral-50 p-3">
                   <div>
-                    <h3 className="text-sm font-semibold text-neutral-900">Location and regional defaults</h3>
-                    <p className="mt-1 text-xs text-neutral-600">Address drives timezone detection. Currency stays configurable.</p>
+                    <h3 className="text-sm font-semibold text-neutral-900">{t("settings.region.title")}</h3>
+                    <p className="mt-1 text-xs text-neutral-600">{t("settings.region.description")}</p>
                   </div>
 
                   <FormField
                     id="address"
-                    label="Address"
-                    hint="Search and select online. Russian input returns Russian suggestions, English input returns English suggestions."
+                    label={t("settings.address.label")}
+                    hint={t("settings.address.hint")}
                   >
                     <div className="space-y-2">
                       <AddressAutocompleteField
@@ -504,7 +513,7 @@ export function WorkspaceSettingsScreen(): JSX.Element {
 
                       <div className="relative" ref={timezonePopoverRef}>
                         <div className="flex flex-wrap items-center gap-2 text-xs">
-                          <span className="text-neutral-500">Timezone:</span>
+                          <span className="text-neutral-500">{t("settings.timezone.label")}:</span>
                           <button
                             type="button"
                             className="rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 font-medium text-neutral-800 hover:border-neutral-300"
@@ -515,7 +524,7 @@ export function WorkspaceSettingsScreen(): JSX.Element {
                           >
                             {form.timezone}
                           </button>
-                          {timezoneManualOverride ? <Badge tone="neutral">Manual</Badge> : null}
+                          {timezoneManualOverride ? <Badge tone="neutral">{t("settings.timezone.manual")}</Badge> : null}
                           {timezoneManualOverride && detectedTimezone ? (
                             <Button
                               type="button"
@@ -527,12 +536,12 @@ export function WorkspaceSettingsScreen(): JSX.Element {
                                 setTimezonePickerOpen(false);
                               }}
                             >
-                              Use auto-detected timezone
+                              {t("settings.timezone.use_auto")}
                             </Button>
                           ) : null}
                         </div>
                         <p className="mt-1 text-xs text-neutral-600">
-                          {timezoneManualOverride ? "Manual override enabled." : timezoneHelperText}
+                          {timezoneManualOverride ? t("settings.timezone.manual_enabled") : timezoneHelperText}
                         </p>
 
                         {timezonePickerOpen ? (
@@ -543,8 +552,8 @@ export function WorkspaceSettingsScreen(): JSX.Element {
                               value={timezoneDraft}
                               onChange={setTimezoneDraft}
                               options={mergedTimezoneOptions}
-                              placeholder="Select timezone"
-                              searchPlaceholder="Search timezone..."
+                              placeholder={t("settings.timezone.select")}
+                              searchPlaceholder={t("settings.timezone.search")}
                             />
                             <div className="mt-2 flex items-center justify-end gap-2">
                               <Button
@@ -556,7 +565,7 @@ export function WorkspaceSettingsScreen(): JSX.Element {
                                   setTimezoneDraft(form.timezone);
                                 }}
                               >
-                                Cancel
+                                {t("common.cancel")}
                               </Button>
                               <Button
                                 type="button"
@@ -568,7 +577,7 @@ export function WorkspaceSettingsScreen(): JSX.Element {
                                   setTimezonePickerOpen(false);
                                 }}
                               >
-                                Apply
+                                {t("settings.timezone.apply")}
                               </Button>
                             </div>
                           </div>
@@ -577,7 +586,7 @@ export function WorkspaceSettingsScreen(): JSX.Element {
                     </div>
                   </FormField>
 
-                  <FormField id="currency" label="Currency" required hint="ISO code. Auto-suggested from selected address country when available.">
+                  <FormField id="currency" label={t("settings.currency.label")} required hint={t("settings.currency.hint")}>
                     <div className="space-y-2">
                       <Select
                         id="currency"
@@ -598,7 +607,7 @@ export function WorkspaceSettingsScreen(): JSX.Element {
                       {currencySuggestion ? (
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge tone="neutral">
-                            Suggested: {currencySuggestion}
+                            {t("settings.currency.suggested")}: {currencySuggestion}
                             {currencySuggestionSource ? ` (${currencySuggestionSource})` : ""}
                           </Badge>
                           {currencySuggestion !== form.currency ? (
@@ -610,7 +619,7 @@ export function WorkspaceSettingsScreen(): JSX.Element {
                                 setForm((prev) => ({ ...prev, currency: currencySuggestion }));
                               }}
                             >
-                              Apply suggestion
+                              {t("settings.currency.apply_suggestion")}
                             </Button>
                           ) : null}
                         </div>
@@ -622,10 +631,69 @@ export function WorkspaceSettingsScreen(): JSX.Element {
 
               <section className="space-y-3 rounded-md border border-neutral-200 p-4">
                 <div>
-                  <h2 className="text-[16px] font-semibold text-neutral-900">Operational notes</h2>
-                  <p className="mt-1 text-sm text-neutral-600">Short note for business hours, handover rules, or service desk specifics.</p>
+                  <h2 className="text-[16px] font-semibold text-neutral-900">{t("settings.preferences.title")}</h2>
+                  <p className="mt-1 text-sm text-neutral-600">{t("settings.preferences.description")}</p>
                 </div>
-                <FormField id="working_hours_note" label="Working hours note">
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-neutral-600">{t("settings.preferences.language")}</p>
+                    <div className="grid grid-cols-2 gap-1 rounded-md border border-neutral-200 bg-neutral-50 p-1">
+                      <button
+                        type="button"
+                        className={`h-8 rounded-md px-2 text-xs font-medium transition-colors ${
+                          locale === "ru" ? "bg-neutral-0 text-neutral-900 shadow-sm" : "text-neutral-600 hover:bg-neutral-100"
+                        }`}
+                        onClick={() => setLocale("ru")}
+                      >
+                        {t("locale.russian")}
+                      </button>
+                      <button
+                        type="button"
+                        className={`h-8 rounded-md px-2 text-xs font-medium transition-colors ${
+                          locale === "en" ? "bg-neutral-0 text-neutral-900 shadow-sm" : "text-neutral-600 hover:bg-neutral-100"
+                        }`}
+                        onClick={() => setLocale("en")}
+                      >
+                        {t("locale.english")}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-neutral-600">{t("settings.preferences.theme")}</p>
+                    <div className="grid grid-cols-2 gap-1 rounded-md border border-neutral-200 bg-neutral-50 p-1">
+                      <button
+                        type="button"
+                        className={`inline-flex h-8 items-center justify-center gap-1 rounded-md px-2 text-xs font-medium transition-colors ${
+                          theme === "light" ? "bg-neutral-0 text-neutral-900 shadow-sm" : "text-neutral-600 hover:bg-neutral-100"
+                        }`}
+                        onClick={() => setTheme("light")}
+                      >
+                        <Sun className="h-3.5 w-3.5" />
+                        {t("shell.theme.light")}
+                      </button>
+                      <button
+                        type="button"
+                        className={`inline-flex h-8 items-center justify-center gap-1 rounded-md px-2 text-xs font-medium transition-colors ${
+                          theme === "dark" ? "bg-neutral-0 text-neutral-900 shadow-sm" : "text-neutral-600 hover:bg-neutral-100"
+                        }`}
+                        onClick={() => setTheme("dark")}
+                      >
+                        <Moon className="h-3.5 w-3.5" />
+                        {t("shell.theme.dark")}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-3 rounded-md border border-neutral-200 p-4">
+                <div>
+                  <h2 className="text-[16px] font-semibold text-neutral-900">{t("settings.notes.title")}</h2>
+                  <p className="mt-1 text-sm text-neutral-600">{t("settings.notes.description")}</p>
+                </div>
+                <FormField id="working_hours_note" label={t("settings.notes.field_label")}>
                   <Textarea
                     id="working_hours_note"
                     className="min-h-28"
@@ -646,9 +714,9 @@ export function WorkspaceSettingsScreen(): JSX.Element {
 
             <div className="sticky bottom-0 border-t border-neutral-200 bg-neutral-50 px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs text-neutral-600">Changes apply to this workspace immediately after save.</p>
+                <p className="text-xs text-neutral-600">{t("settings.footer.note")}</p>
                 <Button type="submit" variant="primary" loading={updateMutation.isPending}>
-                  Save workspace settings
+                  {t("settings.save")}
                 </Button>
               </div>
             </div>

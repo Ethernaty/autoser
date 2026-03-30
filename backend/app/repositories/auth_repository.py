@@ -38,8 +38,8 @@ class AuthRepository:
     def list_memberships_for_user(self, user_id: UUID) -> list[Membership]:
         return self.membership_repo.list_for_user(user_id)
 
-    def create_user(self, *, email: str, password_hash: str, is_active: bool = True) -> User:
-        return self.user_repo.create(email=email, password_hash=password_hash, is_active=is_active)
+    def create_user(self, *, email: str, password_hash: str, full_name: str | None = None, is_active: bool = True) -> User:
+        return self.user_repo.create(email=email, password_hash=password_hash, full_name=full_name, is_active=is_active)
 
     def create_tenant(self, *, name: str, slug: str) -> Tenant:
         return self.tenant_repo.create(name=name, slug=slug)

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import type { Route } from "next";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -10,7 +10,7 @@ import { formatPhoneForDisplay } from "@/core/lib/phone";
 import { normalizePlateForSubmit, normalizeVinForSubmit } from "@/core/lib/vehicle";
 import { DataTable } from "@/design-system/primitives/data-table/data-table";
 import type { DataTableColumn } from "@/design-system/primitives/data-table/data-table.types";
-import { Button, FormActions, FormField, Input, Modal, Textarea } from "@/design-system/primitives";
+import { Button, Combobox, FormActions, FormField, Input, Modal, Textarea } from "@/design-system/primitives";
 import { PageLayout } from "@/design-system/patterns";
 import {
   createVehicle,
@@ -20,6 +20,7 @@ import {
   updateVehicle
 } from "@/features/workspace/api/mvp-api";
 import type { VehicleRecord } from "@/features/workspace/types/mvp-types";
+import { useI18n } from "@/shared/i18n";
 
 const PAGE_SIZE = 20;
 
@@ -44,6 +45,7 @@ function defaultVehicleForm(): VehicleForm {
 }
 
 export function VehiclesScreen(): JSX.Element {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();
@@ -149,7 +151,7 @@ export function VehiclesScreen(): JSX.Element {
     () => [
       {
         id: "vehicle",
-        header: "Vehicle",
+        header: t("vehicles.table.vehicle"),
         minWidth: 340,
         cell: (row) => (
           <div className="space-y-0.5">
@@ -163,12 +165,12 @@ export function VehiclesScreen(): JSX.Element {
       },
       {
         id: "client",
-        header: "Client",
+        header: t("vehicles.table.client"),
         minWidth: 240,
         cell: (row) => clientsMap.get(row.client_id) ?? row.client_id
       }
     ],
-    [clientsMap]
+    [clientsMap, t]
   );
 
   const onOpenCreate = (): void => {
@@ -199,22 +201,21 @@ export function VehiclesScreen(): JSX.Element {
     const normalizedVin = normalizeVinForSubmit(form.vin);
 
     if (!normalizedPlate || !form.make_model.trim()) {
-      setFormError("Plate number and make/model are required.");
+      setFormError(t("vehicles.form.error.required"));
       return;
     }
     if (!editingVehicle && !form.client_id) {
-      setFormError("Client is required for new vehicle.");
+      setFormError(t("vehicles.form.error.client_required"));
       return;
     }
 
-    // Guard against duplicate plate/vin before submit.
     try {
       const plateLookup = await fetchVehicles({ q: normalizedPlate, limit: 50, offset: 0 });
       const duplicatePlate = plateLookup.items.find(
         (item) => normalizePlateForSubmit(item.plate_number) === normalizedPlate && (!editingVehicle || item.id !== editingVehicle.id)
       );
       if (duplicatePlate) {
-        setFormError(`Vehicle with this plate already exists (${duplicatePlate.plate_number}).`);
+        setFormError(t("vehicles.form.error.duplicate_plate", { plate: duplicatePlate.plate_number }));
         return;
       }
 
@@ -224,12 +225,12 @@ export function VehiclesScreen(): JSX.Element {
           (item) => normalizeVinForSubmit(item.vin) === normalizedVin && (!editingVehicle || item.id !== editingVehicle.id)
         );
         if (duplicateVin) {
-          setFormError(`Vehicle with this VIN already exists (${duplicateVin.plate_number}).`);
+          setFormError(t("vehicles.form.error.duplicate_vin", { plate: duplicateVin.plate_number }));
           return;
         }
       }
     } catch {
-      // Do not block submit if precheck fails; backend remains source of truth.
+      // backend remains source of truth
     }
 
     setFormError(null);
@@ -262,20 +263,29 @@ export function VehiclesScreen(): JSX.Element {
   };
 
   const hasClients = (clientsQuery.data?.items?.length ?? 0) > 0;
+  const clientOptions = useMemo(
+    () =>
+      (clientsQuery.data?.items ?? []).map((client) => ({
+        value: client.id,
+        label: `${client.name} (${formatPhoneForDisplay(client.phone)})`,
+        keywords: [client.name, client.phone, client.email ?? ""]
+      })),
+    [clientsQuery.data?.items]
+  );
 
   return (
     <PageLayout
-      title="Vehicles"
-      subtitle="Fast vehicle registry linked to client records"
+      title={t("vehicles.title")}
+      subtitle={t("vehicles.subtitle")}
       className="space-y-2"
       actions={
         <Button onClick={onOpenCreate} variant="primary">
-          Add vehicle
+          {t("vehicles.add")}
         </Button>
       }
     >
       <div className="space-y-1.5">
-        <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by plate or model" />
+        <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("vehicles.search_placeholder")} />
 
         <DataTable
           columns={columns}
@@ -287,17 +297,17 @@ export function VehiclesScreen(): JSX.Element {
           loading={vehiclesQuery.isLoading}
           error={vehiclesQuery.error?.message}
           onRetry={() => void vehiclesQuery.refetch()}
-          emptyTitle="No vehicles yet"
-          emptyDescription="Add your first vehicle to start linking work orders."
+          emptyTitle={t("vehicles.empty.title")}
+          emptyDescription={t("vehicles.empty.description")}
           emptyAction={
             <Button variant="primary" onClick={onOpenCreate}>
-              Add vehicle
+              {t("vehicles.add")}
             </Button>
           }
           rowActions={[
             {
               id: "edit",
-              label: "Edit",
+              label: t("common.edit"),
               variant: "secondary",
               onClick: onOpenEdit
             }
@@ -322,12 +332,12 @@ export function VehiclesScreen(): JSX.Element {
       <Modal
         open={modalOpen}
         onOpenChange={setModalOpen}
-        title={editingVehicle ? "Edit vehicle" : "Create vehicle"}
-        description="Vehicle is a first-class entity linked to client and work orders"
+        title={editingVehicle ? t("vehicles.modal.edit_title") : t("vehicles.modal.create_title")}
+        description={t("vehicles.modal.description")}
         footer={
           <FormActions>
             <Button variant="secondary" onClick={() => setModalOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               type="submit"
@@ -335,55 +345,52 @@ export function VehiclesScreen(): JSX.Element {
               loading={createMutation.isPending || updateMutation.isPending}
               disabled={!editingVehicle && !hasClients}
             >
-              {editingVehicle ? "Save" : "Create"}
+              {editingVehicle ? t("common.save") : t("common.create")}
             </Button>
           </FormActions>
         }
       >
         <form id="vehicle-form" className="space-y-2" onSubmit={(event) => void onSubmit(event)}>
           {!editingVehicle ? (
-            <FormField id="client-id" label="Client" required>
-              <select
+            <FormField id="client-id" label={t("common.client")} required>
+              <Combobox
                 id="client-id"
-                className="h-5 w-full rounded-sm border border-neutral-300 bg-neutral-0 px-2 text-sm text-neutral-900"
                 value={form.client_id}
-                onChange={(event) => setForm((prev) => ({ ...prev, client_id: event.target.value }))}
+                onChange={(value) => setForm((prev) => ({ ...prev, client_id: value }))}
                 disabled={clientsQuery.isLoading || !hasClients}
-              >
-                <option value="">{clientsQuery.isLoading ? "Loading clients..." : "Select client"}</option>
-                {(clientsQuery.data?.items ?? []).map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.name} ({formatPhoneForDisplay(client.phone)})
-                  </option>
-                ))}
-              </select>
+                options={clientOptions}
+                placeholder={clientsQuery.isLoading ? t("vehicles.form.loading_clients") : t("vehicles.form.select_client")}
+                searchPlaceholder={t("common.search")}
+                emptyText={t("vehicles.form.no_clients")}
+                size="md"
+              />
               {!clientsQuery.isLoading && !hasClients ? (
-                <p className="mt-1 text-xs text-neutral-600">No clients found. Create a client first, then add a vehicle.</p>
+                <p className="mt-1 text-xs text-neutral-600">{t("vehicles.form.no_clients")}</p>
               ) : null}
-              {clientsQuery.error ? <p className="mt-1 text-xs text-error">Failed to load clients. Please retry.</p> : null}
+              {clientsQuery.error ? <p className="mt-1 text-xs text-error">{t("vehicles.form.load_clients_error")}</p> : null}
             </FormField>
           ) : null}
-          <FormField id="plate-number" label="Plate number" required>
+          <FormField id="plate-number" label={t("common.plate_number")} required>
             <Input
               id="plate-number"
               value={form.plate_number}
               onChange={(event) => setForm((prev) => ({ ...prev, plate_number: event.target.value }))}
             />
           </FormField>
-          <FormField id="make-model" label="Make / model" required>
+          <FormField id="make-model" label={t("common.make_model")} required>
             <Input
               id="make-model"
               value={form.make_model}
               onChange={(event) => setForm((prev) => ({ ...prev, make_model: event.target.value }))}
             />
           </FormField>
-          <FormField id="year" label="Year">
+          <FormField id="year" label={t("common.year")}>
             <Input id="year" value={form.year} onChange={(event) => setForm((prev) => ({ ...prev, year: event.target.value }))} />
           </FormField>
-          <FormField id="vin" label="VIN">
+          <FormField id="vin" label={t("common.vin")}>
             <Input id="vin" value={form.vin} onChange={(event) => setForm((prev) => ({ ...prev, vin: event.target.value }))} />
           </FormField>
-          <FormField id="comment" label="Comment">
+          <FormField id="comment" label={t("common.comment")}>
             <Textarea
               id="comment"
               value={form.comment}

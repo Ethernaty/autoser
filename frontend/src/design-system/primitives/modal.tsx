@@ -32,6 +32,12 @@ export function Modal({ open, onOpenChange, title, description, footer, size = "
             "fixed left-1/2 top-1/2 z-50 w-[calc(100%-32px)] -translate-x-1/2 -translate-y-1/2 rounded-md border border-neutral-200 bg-neutral-0 p-3 shadow-md",
             sizeClass[size]
           )}
+          onInteractOutside={(event) => {
+            const target = event.target as HTMLElement | null;
+            if (target?.closest('[data-floating-menu="true"]')) {
+              event.preventDefault();
+            }
+          }}
         >
           {title ? <Dialog.Title className="text-xl leading-[28px] font-semibold text-neutral-900">{title}</Dialog.Title> : null}
           {description ? <Dialog.Description className="mt-1 text-sm text-neutral-600">{description}</Dialog.Description> : null}

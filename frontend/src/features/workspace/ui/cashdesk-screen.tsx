@@ -6,23 +6,25 @@ import { PageLayout, StateBoundary } from "@/design-system/patterns";
 import { DisableIfNoAccess } from "@/features/access/ui/access-guard";
 import { usePayOrderMutation, useWorkspaceCashDeskQuery } from "@/features/workspace/hooks";
 import { OrderStatusBadge } from "@/features/workspace/ui/order-status-badge";
+import { useI18n } from "@/shared/i18n";
 
 export function CashDeskScreen(): JSX.Element {
   const cashDeskQuery = useWorkspaceCashDeskQuery();
   const payMutation = usePayOrderMutation();
+  const { t } = useI18n();
 
   return (
-    <PageLayout title="Cash desk" subtitle={cashDeskQuery.data?.nowLabel ?? "Loading..."}>
+    <PageLayout title={t("cashdesk.title")} subtitle={cashDeskQuery.data?.nowLabel ?? t("common.loading")}>
       <StateBoundary loading={cashDeskQuery.isLoading} error={cashDeskQuery.error?.message}>
         {cashDeskQuery.data ? (
           <>
             <Card className="p-3">
-              <p className="text-sm text-neutral-600">Total due</p>
+              <p className="text-sm text-neutral-600">{t("cashdesk.total_due")}</p>
               <p className="mt-1 text-[32px] leading-[40px] font-bold text-neutral-900">{cashDeskQuery.data.totalDue}</p>
             </Card>
 
             <Card className="space-y-2 p-3">
-              <h2 className="text-lg font-semibold text-neutral-900">Ready for payment</h2>
+              <h2 className="text-lg font-semibold text-neutral-900">{t("cashdesk.ready_for_payment")}</h2>
               {cashDeskQuery.data.rows.length ? (
                 cashDeskQuery.data.rows.map((row) => (
                   <div key={row.id} className="rounded-md border border-neutral-200 p-2">
@@ -47,11 +49,11 @@ export function CashDeskScreen(): JSX.Element {
                               onClick={() => payMutation.mutate({ orderId: row.id })}
                               loading={payMutation.isPending}
                             >
-                              Confirm payment
+                              {t("cashdesk.confirm_payment")}
                             </Button>
                             {disabled ? (
                               <Button variant="quiet" size="sm" onClick={onUpgrade}>
-                                Upgrade
+                                {t("cashdesk.upgrade")}
                               </Button>
                             ) : null}
                           </div>
@@ -61,7 +63,7 @@ export function CashDeskScreen(): JSX.Element {
                   </div>
                 ))
               ) : (
-                <p className="text-sm text-neutral-600">No orders in cash desk queue.</p>
+                <p className="text-sm text-neutral-600">{t("cashdesk.empty")}</p>
               )}
             </Card>
           </>

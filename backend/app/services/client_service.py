@@ -18,7 +18,9 @@ from app.core.exceptions import AppError, CrossTenantDataViolation
 from app.core.input_security import guard_against_sqli, sanitize_text
 from app.core.serialization import JsonSerializer, Serializer
 from app.models.client import Client
+from app.models.order import Order
 from app.repositories.client_repository import ClientRepository
+from app.repositories.order_repository import OrderRepository
 from app.services.audit_decorator import audit
 from app.services.audit_log_service import AuditLogService
 from app.services.base_service import BaseService
@@ -286,6 +288,21 @@ class ClientService(BaseService):
 
         payloads = await self.execute_read(read_op)
         return [self._payload_to_client(self._mask_payload(item)) for item in payloads if isinstance(item, dict)]
+
+    async def list_work_order_history(self, *, client_id: UUID, limit: int = 20, offset: int = 0) -> list[Order]:
+        self._validate_pagination(limit=limit, offset=offset)
+
+        def read_op(db: Session) -> list[Order]:
+            repo = ClientRepository(db=db, tenant_id=self.tenant_id)
+            if repo.get_by_id(client_id) is None:
+                raise AppError(status_code=404, code="client_not_found", message="Client not found")
+
+            order_repo = OrderRepository(db=db, tenant_id=self.tenant_id)
+            orders = order_repo.list(Order.client_id == client_id)
+            orders.sort(key=lambda item: item.created_at, reverse=True)
+            return orders[offset : offset + limit]
+
+        return await self.execute_read(read_op)
 
     async def count_clients(self, *, query: str | None = None) -> int:
         normalized_query = guard_against_sqli(query.strip()) if query else None

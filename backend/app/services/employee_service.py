@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from email_validator import EmailNotValidError, validate_email
 from sqlalchemy import String, cast, delete, func, or_, select
@@ -26,6 +26,7 @@ from app.services.password_hasher import PasswordHasher
 class EmployeeRecord:
     user_id: UUID
     tenant_id: UUID
+    full_name: str | None
     email: str
     role: MembershipRole
     is_active: bool
@@ -82,6 +83,7 @@ class EmployeeService(BaseService):
                 pattern = f"%{normalized_query}%"
                 stmt = stmt.where(
                     or_(
+                        User.full_name.ilike(pattern),
                         User.email.ilike(pattern),
                         cast(User.id, String).ilike(pattern),
                     )
@@ -96,6 +98,7 @@ class EmployeeService(BaseService):
                     EmployeeRecord(
                         user_id=user.id,
                         tenant_id=membership.tenant_id,
+                        full_name=user.full_name,
                         email=user.email,
                         role=membership.role,
                         is_active=bool(user.is_active),
@@ -119,6 +122,7 @@ class EmployeeService(BaseService):
                 pattern = f"%{normalized_query}%"
                 stmt = stmt.where(
                     or_(
+                        User.full_name.ilike(pattern),
                         User.email.ilike(pattern),
                         cast(User.id, String).ilike(pattern),
                     )
@@ -139,6 +143,7 @@ class EmployeeService(BaseService):
             return EmployeeRecord(
                 user_id=user.id,
                 tenant_id=membership.tenant_id,
+                full_name=user.full_name,
                 email=user.email,
                 role=membership.role,
                 is_active=bool(user.is_active),
@@ -151,12 +156,14 @@ class EmployeeService(BaseService):
     async def create_employee(
         self,
         *,
-        email: str,
+        email: str | None,
+        full_name: str | None,
         password: str,
         role: str,
         idempotency_key: str | None = None,
     ) -> EmployeeRecord:
-        normalized_email = self._normalize_email(email)
+        normalized_email = self._normalize_email(email) if email is not None and email.strip() else None
+        normalized_full_name = self._normalize_full_name(full_name)
         normalized_password = self._normalize_password(password)
         normalized_role = self._normalize_role(role)
 
@@ -165,6 +172,7 @@ class EmployeeService(BaseService):
             payload_hash = self.idempotency_service.build_request_hash(
                 {
                     "email": normalized_email,
+                    "full_name": normalized_full_name,
                     "role": normalized_role.value,
                 }
             )
@@ -181,6 +189,7 @@ class EmployeeService(BaseService):
                 return EmployeeRecord(
                     user_id=idempotency_decision.response_payload["user_id"],
                     tenant_id=idempotency_decision.response_payload["tenant_id"],
+                    full_name=idempotency_decision.response_payload.get("full_name"),
                     email=idempotency_decision.response_payload["email"],
                     role=MembershipRole(idempotency_decision.response_payload["role"]),
                     is_active=bool(idempotency_decision.response_payload["is_active"]),
@@ -190,7 +199,8 @@ class EmployeeService(BaseService):
 
         def write_op(db: Session) -> EmployeeRecord:
             auth_repo = AuthRepository(db)
-            existing_user = auth_repo.get_user_by_email(normalized_email)
+            resolved_email = normalized_email or self._build_placeholder_email(db=db)
+            existing_user = auth_repo.get_user_by_email(resolved_email)
 
             if existing_user is not None:
                 existing_membership = auth_repo.get_membership(user_id=existing_user.id, tenant_id=self.tenant_id)
@@ -204,10 +214,13 @@ class EmployeeService(BaseService):
                 )
                 if not existing_user.is_active:
                     existing_user.is_active = True
+                if normalized_full_name:
+                    existing_user.full_name = normalized_full_name
 
                 return EmployeeRecord(
                     user_id=existing_user.id,
                     tenant_id=membership.tenant_id,
+                    full_name=existing_user.full_name,
                     email=existing_user.email,
                     role=membership.role,
                     is_active=bool(existing_user.is_active),
@@ -216,12 +229,18 @@ class EmployeeService(BaseService):
                 )
 
             password_hash = self.password_hasher.hash(normalized_password)
-            user = auth_repo.create_user(email=normalized_email, password_hash=password_hash, is_active=True)
+            user = auth_repo.create_user(
+                email=resolved_email,
+                full_name=normalized_full_name,
+                password_hash=password_hash,
+                is_active=True,
+            )
             membership = auth_repo.create_membership(user_id=user.id, tenant_id=self.tenant_id, role=normalized_role)
 
             return EmployeeRecord(
                 user_id=user.id,
                 tenant_id=membership.tenant_id,
+                full_name=user.full_name,
                 email=user.email,
                 role=membership.role,
                 is_active=bool(user.is_active),
@@ -255,16 +274,18 @@ class EmployeeService(BaseService):
         self,
         *,
         user_id: UUID,
+        full_name: str | None = None,
         email: str | None = None,
         password: str | None = None,
         role: str | None = None,
         is_active: bool | None = None,
     ) -> EmployeeRecord:
+        normalized_full_name = self._normalize_full_name(full_name) if full_name is not None else None
         normalized_email = self._normalize_email(email) if email is not None else None
         normalized_password = self._normalize_password(password) if password is not None else None
         normalized_role = self._normalize_role(role) if role is not None else None
 
-        if normalized_email is None and normalized_password is None and normalized_role is None and is_active is None:
+        if normalized_full_name is None and normalized_email is None and normalized_password is None and normalized_role is None and is_active is None:
             raise AppError(status_code=400, code="empty_update", message="No fields provided for update")
 
         def write_op(db: Session) -> EmployeeRecord:
@@ -278,6 +299,8 @@ class EmployeeService(BaseService):
                 if existing_user is not None and existing_user.id != user.id:
                     raise AppError(status_code=409, code="email_already_exists", message="Email already exists")
                 user.email = normalized_email
+            if normalized_full_name is not None:
+                user.full_name = normalized_full_name
 
             if normalized_password is not None:
                 user.password_hash = self.password_hasher.hash(normalized_password)
@@ -292,6 +315,7 @@ class EmployeeService(BaseService):
             return EmployeeRecord(
                 user_id=user.id,
                 tenant_id=membership.tenant_id,
+                full_name=user.full_name,
                 email=user.email,
                 role=membership.role,
                 is_active=bool(user.is_active),
@@ -364,6 +388,26 @@ class EmployeeService(BaseService):
         return validated.normalized
 
     @staticmethod
+    def _normalize_full_name(value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            return None
+        if len(normalized) > 160:
+            raise AppError(status_code=400, code="invalid_full_name", message="Full name is too long")
+        return normalized
+
+    @staticmethod
+    def _build_placeholder_email(*, db: Session) -> str:
+        while True:
+            local = uuid4().hex[:12]
+            candidate = f"employee-{local}@local.autoser"
+            exists = db.execute(select(User.id).where(User.email == candidate)).scalar_one_or_none()
+            if exists is None:
+                return candidate
+
+    @staticmethod
     def _normalize_role(value: str | MembershipRole) -> MembershipRole:
         raw = value.value if isinstance(value, MembershipRole) else str(value)
         candidate = raw.strip().lower()
@@ -407,6 +451,7 @@ class EmployeeService(BaseService):
         return {
             "user_id": employee.user_id,
             "tenant_id": employee.tenant_id,
+            "full_name": employee.full_name,
             "email": employee.email,
             "role": employee.role.value,
             "is_active": employee.is_active,

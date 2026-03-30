@@ -38,6 +38,7 @@ def _to_response(employee: EmployeeRecord) -> EmployeeResponse:
         employee_id=employee.user_id,
         user_id=employee.user_id,
         tenant_id=employee.tenant_id,
+        full_name=employee.full_name,
         email=employee.email,
         role=employee.role.value,
         is_active=employee.is_active,
@@ -95,7 +96,8 @@ async def create_employee(
     service: EmployeeService = Depends(get_employee_service),
 ) -> EmployeeResponse:
     employee = await service.create_employee(
-        email=str(payload.email),
+        email=str(payload.email) if payload.email else None,
+        full_name=payload.full_name,
         password=payload.password,
         role=payload.role,
         idempotency_key=idempotency_key,
@@ -121,6 +123,7 @@ async def update_employee(
 ) -> EmployeeResponse:
     employee = await service.update_employee(
         user_id=employee_id,
+        full_name=payload.full_name,
         email=str(payload.email) if payload.email else None,
         password=payload.password,
         role=payload.role,

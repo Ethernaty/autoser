@@ -100,6 +100,16 @@ class VehicleService(BaseService):
 
         return await self.execute_read(read_op)
 
+    async def list_by_ids(self, *, ids: list[UUID], include_archived: bool = True) -> list[Vehicle]:
+        if not ids:
+            return []
+
+        def read_op(db: Session) -> list[Vehicle]:
+            repo = VehicleRepository(db=db, tenant_id=self.tenant_id)
+            return repo.list_by_ids(ids=ids, include_archived=include_archived)
+
+        return await self.execute_read(read_op)
+
     async def update_vehicle(
         self,
         *,

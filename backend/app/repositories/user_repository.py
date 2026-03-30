@@ -20,8 +20,8 @@ class UserRepository:
         stmt = select(User).where(User.id == user_id)
         return self.db.execute(stmt).scalar_one_or_none()
 
-    def create(self, *, email: str, password_hash: str, is_active: bool = True) -> User:
-        user = User(email=email, password_hash=password_hash, is_active=is_active)
+    def create(self, *, email: str, password_hash: str, full_name: str | None = None, is_active: bool = True) -> User:
+        user = User(email=email, full_name=full_name, password_hash=password_hash, is_active=is_active)
         self.db.add(user)
         self.db.flush()
         return user

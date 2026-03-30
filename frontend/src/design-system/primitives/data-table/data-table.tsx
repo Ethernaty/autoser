@@ -16,6 +16,7 @@ import type {
   SortDirection
 } from "@/design-system/primitives/data-table/data-table.types";
 import { useRovingFocus } from "@/shared/hooks/use-roving-focus";
+import { useI18n } from "@/shared/i18n";
 
 export type DataTableProps<T> = {
   columns: DataTableColumn<T>[];
@@ -66,14 +67,15 @@ export function DataTable<T>({
   loading = false,
   error,
   onRetry,
-  emptyTitle = "No records found",
-  emptyDescription = "Change filters or create a new record.",
+  emptyTitle,
+  emptyDescription,
   emptyAction,
   tableClassName,
   density = "compact",
   variant = "default",
   onRowClick
 }: DataTableProps<T>): JSX.Element {
+  const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   useRovingFocus({ container: containerRef, selector: "tbody tr[role='row']" });
 
@@ -91,10 +93,13 @@ export function DataTable<T>({
   const rowBorderClass = strongVariant ? "border-neutral-200" : "border-neutral-100";
   const footerToneClass = strongVariant ? "bg-neutral-100" : "bg-neutral-50";
 
+  const resolvedEmptyTitle = emptyTitle ?? t("datatable.empty.title");
+  const resolvedEmptyDescription = emptyDescription ?? t("datatable.empty.description");
+
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-lg border bg-neutral-0",
+        "overflow-visible rounded-lg border bg-neutral-0",
         borderColorClass,
         strongVariant ? "shadow-md" : "shadow-sm"
       )}
@@ -103,7 +108,7 @@ export function DataTable<T>({
     >
       {selection && selectedCount > 0 ? (
         <div className={cn("flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2", borderColorClass, footerToneClass)}>
-          <p className="text-sm text-neutral-700">Selected: {selectedCount}</p>
+          <p className="text-sm text-neutral-700">{t("datatable.selected", { count: selectedCount })}</p>
           <div className="flex flex-wrap items-center gap-2">
             {(bulkActions ?? []).map((action) => (
               <Button
@@ -119,16 +124,10 @@ export function DataTable<T>({
         </div>
       ) : null}
 
-      <div className="max-h-[640px] overflow-auto">
-        <table className={cn("w-full min-w-[1040px] border-separate border-spacing-0", tableClassName)} role="grid">
-          <thead
-            className={cn(
-              "sticky top-0 z-10 backdrop-blur",
-              strongVariant
-                ? "bg-neutral-100/95 supports-[backdrop-filter]:bg-neutral-100/85"
-                : "bg-neutral-50/95 supports-[backdrop-filter]:bg-neutral-50/80"
-            )}
-          >
+      <div className="overflow-visible">
+        <div className="overflow-x-auto">
+          <table className={cn("w-full min-w-[1040px] border-separate border-spacing-0", tableClassName)} role="grid">
+          <thead className={cn("sticky top-0 z-10", strongVariant ? "bg-neutral-100" : "bg-neutral-50")}>
             <tr>
               {selection ? (
                 <th className={cn("h-9 w-10 border-b px-3 align-middle", borderColorClass)}>
@@ -187,18 +186,18 @@ export function DataTable<T>({
                     strongVariant ? "text-neutral-700" : "text-neutral-600"
                   )}
                 >
-                  Actions
+                  {t("common.actions")}
                 </th>
               ) : null}
             </tr>
           </thead>
           <tbody>
             {loading
-              ? Array.from({ length: 8 }).map((_, index) => (
+              ? Array.from({ length: 5 }).map((_, index) => (
                   <tr key={`skeleton-${index}`} role="row" className={rowClass}>
                     {Array.from({ length: totalColumns }).map((__, cellIndex) => (
                       <td key={`skeleton-cell-${index}-${cellIndex}`} className={cn("border-b px-3 py-2", rowBorderClass)}>
-                        <div className={cn("h-2.5 w-full animate-pulse rounded", strongVariant ? "bg-neutral-200" : "bg-neutral-100")} />
+                        <div className={cn("h-2.5 w-full rounded", strongVariant ? "bg-neutral-200" : "bg-neutral-100")} />
                       </td>
                     ))}
                   </tr>
@@ -210,12 +209,12 @@ export function DataTable<T>({
                 <td colSpan={totalColumns} className={cn("border-b px-3 py-4", rowBorderClass)}>
                   <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-error/25 bg-error/5 p-3">
                     <div>
-                      <p className="text-sm font-medium text-error">Unable to load table data</p>
+                      <p className="text-sm font-medium text-error">{t("datatable.error.title")}</p>
                       <p className="text-xs text-neutral-700">{error}</p>
                     </div>
                     {onRetry ? (
                       <Button variant="secondary" size="sm" onClick={onRetry}>
-                        Retry
+                        {t("datatable.retry")}
                       </Button>
                     ) : null}
                   </div>
@@ -227,8 +226,8 @@ export function DataTable<T>({
               <tr>
                 <td colSpan={totalColumns} className={cn("border-b px-3 py-8", rowBorderClass)}>
                   <div className="mx-auto max-w-md rounded-md border border-neutral-200 bg-neutral-50 px-4 py-4 text-center">
-                    <p className="text-sm font-semibold text-neutral-800">{emptyTitle}</p>
-                    <p className="mt-1 text-sm text-neutral-600">{emptyDescription}</p>
+                    <p className="text-sm font-semibold text-neutral-800">{resolvedEmptyTitle}</p>
+                    <p className="mt-1 text-sm text-neutral-600">{resolvedEmptyDescription}</p>
                     {emptyAction ? <div className="mt-3 flex justify-center">{emptyAction}</div> : null}
                   </div>
                 </td>
@@ -315,39 +314,48 @@ export function DataTable<T>({
                 })
               : null}
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
 
       {pagination ? (
         <div className={cn("flex items-center justify-between gap-3 border-t px-3 py-2", borderColorClass, footerToneClass)}>
           <p className="text-xs text-neutral-600">
             {pagination.total === 0
-              ? "Showing 0 of 0"
-              : `Showing ${(pagination.page - 1) * pagination.pageSize + 1}-${Math.min(
+              ? t("datatable.pagination.empty")
+              : t("datatable.pagination.range", {
+                  from: (pagination.page - 1) * pagination.pageSize + 1,
+                  to: Math.min(
                   pagination.page * pagination.pageSize,
                   pagination.total
-                )} of ${pagination.total}`}
+                  ),
+                  total: pagination.total
+                })}
           </p>
-          <div className="flex items-center gap-1.5">
+          <div className="inline-flex items-center rounded-md border border-neutral-200 bg-neutral-0 p-0.5">
             <Button
               size="sm"
-              variant="secondary"
+              variant="ghost"
+              className="h-7 w-7 min-w-0 rounded-md px-0"
               onClick={() => pagination.onPageChange(Math.max(1, pagination.page - 1))}
               disabled={pagination.page <= 1}
+              title={t("datatable.pagination.prev")}
+              aria-label={t("datatable.pagination.prev")}
             >
               <ChevronLeft className="h-2.5 w-2.5" />
-              Prev
             </Button>
-            <span className="text-xs font-medium text-neutral-700">
-              Page {pagination.page}/{totalPages}
+            <span className="min-w-[56px] px-2 py-1 text-center text-xs font-semibold text-neutral-700">
+              {pagination.page} / {totalPages}
             </span>
             <Button
               size="sm"
-              variant="secondary"
+              variant="ghost"
+              className="h-7 w-7 min-w-0 rounded-md px-0"
               onClick={() => pagination.onPageChange(Math.min(totalPages, pagination.page + 1))}
               disabled={pagination.page >= totalPages}
+              title={t("datatable.pagination.next")}
+              aria-label={t("datatable.pagination.next")}
             >
-              Next
               <ChevronRight className="h-2.5 w-2.5" />
             </Button>
           </div>

@@ -31,12 +31,14 @@ export async function POST(request: NextRequest) {
   const idempotencyKey = request.headers.get("Idempotency-Key") ?? undefined;
 
   let payload: {
+    full_name?: string;
     email?: string;
     password?: string;
     role?: string;
   };
   try {
     payload = (await request.json()) as {
+      full_name?: string;
       email?: string;
       password?: string;
       role?: string;
@@ -45,15 +47,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: "Invalid request payload" }, { status: 400 });
   }
 
-  if (!payload.email || !payload.password || !payload.role) {
-    return NextResponse.json({ message: "email, password and role are required" }, { status: 400 });
+  if (!payload.full_name || !payload.password || !payload.role) {
+    return NextResponse.json({ message: "full_name, password and role are required" }, { status: 400 });
   }
 
   const result = await runWithWorkspaceSession(request, async (workspaceContext) => {
     await assertAccess(workspaceContext, "employees.create");
     return createEmployee(
       workspaceContext,
-      { email: payload.email!, password: payload.password!, role: payload.role! },
+      { full_name: payload.full_name!, email: payload.email ?? null, password: payload.password!, role: payload.role! },
       { idempotencyKey }
     );
   });

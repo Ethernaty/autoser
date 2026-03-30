@@ -2,6 +2,7 @@
 
 import { Button } from "@/design-system/primitives/button";
 import { Modal } from "@/design-system/primitives/modal";
+import { useI18n } from "@/shared/i18n";
 
 type ConfirmDialogProps = {
   open: boolean;
@@ -20,12 +21,14 @@ export function ConfirmDialog({
   onOpenChange,
   title,
   description,
-  confirmLabel = "Confirm",
-  cancelLabel = "Cancel",
+  confirmLabel,
+  cancelLabel,
   destructive = false,
   loading = false,
   onConfirm
 }: ConfirmDialogProps): JSX.Element {
+  const { t } = useI18n();
+
   return (
     <Modal
       open={open}
@@ -36,16 +39,15 @@ export function ConfirmDialog({
       footer={
         <div className="flex items-center justify-end gap-1">
           <Button variant="secondary" onClick={() => onOpenChange(false)}>
-            {cancelLabel}
+            {cancelLabel ?? t("common.cancel")}
           </Button>
           <Button variant={destructive ? "destructive" : "primary"} loading={loading} onClick={onConfirm}>
-            {confirmLabel}
+            {confirmLabel ?? t("confirm_dialog.confirm")}
           </Button>
         </div>
       }
     >
-      <p className="text-sm text-neutral-700">This action cannot be undone.</p>
+      <p className="text-sm text-neutral-700">{t("confirm_dialog.warning")}</p>
     </Modal>
   );
 }
-

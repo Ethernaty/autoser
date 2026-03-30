@@ -3,24 +3,26 @@
 import { Button } from "@/design-system/primitives/button";
 import { Modal } from "@/design-system/primitives/modal";
 import { useUpgradeModalStore } from "@/features/subscription/model/upgrade-modal-store";
+import { useI18n } from "@/shared/i18n";
 
-function reasonLabel(reason: ReturnType<typeof useUpgradeModalStore.getState>["reason"]): string {
+function reasonLabel(reason: ReturnType<typeof useUpgradeModalStore.getState>["reason"], t: (key: string, params?: Record<string, string>) => string): string {
   if (!reason) {
-    return "Current workspace plan restricts this action.";
+    return t("upgrade.reason.default");
   }
 
   if (reason.kind === "feature") {
-    return `Feature ${reason.feature} is available on a higher plan.`;
+    return t("upgrade.reason.feature", { feature: reason.feature });
   }
 
   if (reason.kind === "limit") {
-    return `Limit ${reason.limitType} has been reached for current billing period.`;
+    return t("upgrade.reason.limit", { limit: reason.limitType });
   }
 
   return reason.message;
 }
 
 export function UpgradeModalFoundation(): JSX.Element {
+  const { t } = useI18n();
   const open = useUpgradeModalStore((state) => state.open);
   const reason = useUpgradeModalStore((state) => state.reason);
   const close = useUpgradeModalStore((state) => state.close);
@@ -33,15 +35,15 @@ export function UpgradeModalFoundation(): JSX.Element {
           close();
         }
       }}
-      title="Upgrade plan"
-      description={reasonLabel(reason)}
+      title={t("upgrade.title")}
+      description={reasonLabel(reason, t)}
       size="sm"
     >
       <div className="mt-2 flex justify-end gap-1">
         <Button variant="secondary" onClick={close}>
-          Close
+          {t("upgrade.close")}
         </Button>
-        <Button disabled>Upgrade (soon)</Button>
+        <Button disabled>{t("upgrade.soon")}</Button>
       </div>
     </Modal>
   );

@@ -33,6 +33,7 @@ export async function PATCH(
   }
 
   let payload: {
+    full_name?: string;
     email?: string;
     password?: string;
     role?: string;
@@ -40,6 +41,7 @@ export async function PATCH(
   };
   try {
     payload = (await request.json()) as {
+      full_name?: string;
       email?: string;
       password?: string;
       role?: string;

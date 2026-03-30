@@ -2,7 +2,7 @@
 
 import { AppProvider } from "@/core/providers/app-provider";
 import { env } from "@/core/config/env";
-import "@/styles/tailwind.css";
+import "../styles/globals.css";
 
 export const metadata: Metadata = {
   title: env.NEXT_PUBLIC_APP_NAME,
@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }): JSX.Element {
   return (
-    <html lang="en">
+    <html lang="ru">
       <body className="bg-background text-foreground antialiased">
         <AppProvider>{children}</AppProvider>
       </body>

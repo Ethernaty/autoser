@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Response, status
+from fastapi.responses import StreamingResponse
 
 from app.controllers.schemas.work_order_schemas import (
     OrderLineCreateRequest,
@@ -12,6 +14,7 @@ from app.controllers.schemas.work_order_schemas import (
     PaymentCreateRequest,
     PaymentResponse,
     WorkOrderTimelineEventResponse,
+    WorkOrderTimelineCommentRequest,
     WorkOrderAssignRequest,
     WorkOrderAttachVehicleRequest,
     WorkOrderCreateRequest,
@@ -20,9 +23,20 @@ from app.controllers.schemas.work_order_schemas import (
     WorkOrderStatusRequest,
     WorkOrderUpdateRequest,
 )
+from app.core.exceptions import AppError
 from app.core.config import get_settings
 from app.core.request_context import UserRequestContext, get_current_tenant_id, get_current_user_context
 from app.middleware.permission_guard import RequirePermission
+from app.services.client_service import ClientService
+from app.services.vehicle_service import VehicleService
+from app.services.work_order_document_renderer import (
+    WorkOrderDocumentLine,
+    WorkOrderDocumentPayment,
+    WorkOrderDocumentSnapshot,
+    render_work_order_docx,
+    render_work_order_html,
+    render_work_order_pdf,
+)
 from app.services.work_order_service import WorkOrderService, WorkOrderFinancials
 
 
@@ -42,18 +56,50 @@ def get_work_order_service(
     )
 
 
-def _to_work_order_response(order, financials: WorkOrderFinancials) -> WorkOrderResponse:
+def get_client_service(
+    tenant_id: UUID = Depends(get_current_tenant_id),
+    context: UserRequestContext = Depends(get_current_user_context),
+) -> ClientService:
+    return ClientService(tenant_id=tenant_id, actor_user_id=context.user_id, actor_role=context.role)
+
+
+def get_vehicle_service(
+    tenant_id: UUID = Depends(get_current_tenant_id),
+    context: UserRequestContext = Depends(get_current_user_context),
+) -> VehicleService:
+    return VehicleService(tenant_id=tenant_id, actor_user_id=context.user_id, actor_role=context.role)
+
+
+def _to_work_order_response(
+    order,
+    financials: WorkOrderFinancials,
+    *,
+    client_name: str | None = None,
+    vehicle_plate_number: str | None = None,
+    vehicle_make_model: str | None = None,
+) -> WorkOrderResponse:
+    if financials.paid_amount <= Decimal("0.00"):
+        payment_state = "unpaid"
+    elif financials.remaining_amount <= Decimal("0.00"):
+        payment_state = "paid"
+    else:
+        payment_state = "partial"
+
     return WorkOrderResponse(
         id=order.id,
         tenant_id=order.tenant_id,
         client_id=order.client_id,
+        client_name=client_name,
         vehicle_id=order.vehicle_id,
+        vehicle_plate_number=vehicle_plate_number,
+        vehicle_make_model=vehicle_make_model,
         assigned_employee_id=order.assigned_user_id,
         assigned_user_id=order.assigned_user_id,
         description=order.description,
         total_amount=order.total_amount,
         price=order.total_amount,
         status=order.status,
+        payment_state=payment_state,
         paid_amount=financials.paid_amount,
         remaining_amount=financials.remaining_amount,
         created_at=order.created_at,
@@ -61,15 +107,32 @@ def _to_work_order_response(order, financials: WorkOrderFinancials) -> WorkOrder
     )
 
 
+async def _build_order_party_maps(
+    *,
+    orders: list,
+    client_service: ClientService,
+    vehicle_service: VehicleService,
+) -> tuple[dict[UUID, str], dict[UUID, object]]:
+    client_ids = list({item.client_id for item in orders})
+    vehicle_ids = list({item.vehicle_id for item in orders if item.vehicle_id is not None})
+
+    clients = await client_service.list_clients_by_ids(ids=client_ids) if client_ids else []
+    vehicles = await vehicle_service.list_by_ids(ids=vehicle_ids, include_archived=True) if vehicle_ids else []
+
+    client_map = {item.id: item.name for item in clients}
+    vehicle_map = {item.id: item for item in vehicles}
+    return client_map, vehicle_map
+
+
 def _to_timeline_response(log_item) -> WorkOrderTimelineEventResponse:
-    metadata = log_item.metadata_json if isinstance(log_item.metadata_json, dict) else {}
-    message = metadata.get("message") if isinstance(metadata.get("message"), str) else log_item.action
     return WorkOrderTimelineEventResponse(
         id=log_item.id,
-        work_order_id=log_item.entity_id,
+        work_order_id=log_item.work_order_id,
         action=log_item.action,
-        message=message,
+        message=log_item.message,
         user_id=log_item.user_id,
+        actor_email=log_item.actor_email,
+        actor_role=log_item.actor_role,
         created_at=log_item.created_at,
     )
 
@@ -85,6 +148,8 @@ async def create_work_order(
     payload: WorkOrderCreateRequest,
     _idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     service: WorkOrderService = Depends(get_work_order_service),
+    client_service: ClientService = Depends(get_client_service),
+    vehicle_service: VehicleService = Depends(get_vehicle_service),
 ) -> WorkOrderResponse:
     order = await service.create_work_order(
         client_id=payload.client_id,
@@ -95,7 +160,19 @@ async def create_work_order(
         assigned_user_id=payload.effective_assignee_id,
     )
     financials = await service.get_financials(work_order_id=order.id)
-    return _to_work_order_response(order, financials)
+    client_map, vehicle_map = await _build_order_party_maps(
+        orders=[order],
+        client_service=client_service,
+        vehicle_service=vehicle_service,
+    )
+    vehicle = vehicle_map.get(order.vehicle_id) if order.vehicle_id is not None else None
+    return _to_work_order_response(
+        order,
+        financials,
+        client_name=client_map.get(order.client_id),
+        vehicle_plate_number=getattr(vehicle, "plate_number", None),
+        vehicle_make_model=getattr(vehicle, "make_model", None),
+    )
 
 
 @router.get("/", response_model=WorkOrderListResponse, dependencies=[Depends(RequirePermission("orders", "read"))])
@@ -110,9 +187,16 @@ async def list_work_orders(
     limit: int = Query(default=20, ge=1, le=MAX_LIMIT),
     offset: int = Query(default=0, ge=0),
     service: WorkOrderService = Depends(get_work_order_service),
+    client_service: ClientService = Depends(get_client_service),
+    vehicle_service: VehicleService = Depends(get_vehicle_service),
 ) -> WorkOrderListResponse:
     items, total = await service.list_work_orders(q=query, limit=limit, offset=offset)
     financials_map = await service.get_financials_map(work_order_ids=[item.id for item in items])
+    client_map, vehicle_map = await _build_order_party_maps(
+        orders=items,
+        client_service=client_service,
+        vehicle_service=vehicle_service,
+    )
     return WorkOrderListResponse(
         items=[
             _to_work_order_response(
@@ -125,6 +209,13 @@ async def list_work_orders(
                         remaining_amount=Decimal(item.total_amount),
                     ),
                 ),
+                client_name=client_map.get(item.client_id),
+                vehicle_plate_number=getattr(vehicle_map.get(item.vehicle_id), "plate_number", None)
+                if item.vehicle_id is not None
+                else None,
+                vehicle_make_model=getattr(vehicle_map.get(item.vehicle_id), "make_model", None)
+                if item.vehicle_id is not None
+                else None,
             )
             for item in items
         ],
@@ -338,6 +429,20 @@ async def list_work_order_timeline(
     return [_to_timeline_response(item) for item in items]
 
 
+@router.post(
+    "/{work_order_id}/timeline/comments",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(RequirePermission("orders", "update"))],
+)
+async def add_work_order_timeline_comment(
+    work_order_id: UUID,
+    payload: WorkOrderTimelineCommentRequest,
+    service: WorkOrderService = Depends(get_work_order_service),
+) -> Response:
+    await service.add_timeline_comment(work_order_id=work_order_id, comment=payload.comment)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/{work_order_id}/payments", response_model=PaymentResponse, dependencies=[Depends(RequirePermission("payments", "create"))])
 async def create_work_order_payment(
     work_order_id: UUID,
@@ -353,3 +458,95 @@ async def create_work_order_payment(
         external_ref=payload.external_ref,
     )
     return PaymentResponse.model_validate(payment)
+
+
+@router.get(
+    "/{work_order_id}/document",
+    dependencies=[Depends(RequirePermission("orders", "read"))],
+)
+async def get_work_order_document(
+    work_order_id: UUID,
+    format: Literal["pdf", "html", "docx"] = Query(default="pdf"),
+    work_order_service: WorkOrderService = Depends(get_work_order_service),
+    client_service: ClientService = Depends(get_client_service),
+    vehicle_service: VehicleService = Depends(get_vehicle_service),
+) -> Response:
+    order = await work_order_service.get_work_order(work_order_id=work_order_id)
+    financials = await work_order_service.get_financials(work_order_id=work_order_id)
+    lines = await work_order_service.list_order_lines(work_order_id=work_order_id)
+    payments = await work_order_service.list_payments(work_order_id=work_order_id)
+    client = await client_service.get_client(client_id=order.client_id)
+    vehicle = await vehicle_service.get_vehicle(vehicle_id=order.vehicle_id) if order.vehicle_id is not None else None
+
+    snapshot = WorkOrderDocumentSnapshot(
+        work_order_id=str(order.id),
+        status=order.status.value,
+        description=order.description,
+        created_at=order.created_at,
+        updated_at=order.updated_at,
+        total_amount=Decimal(order.total_amount),
+        paid_amount=financials.paid_amount,
+        remaining_amount=financials.remaining_amount,
+        client_name=client.name,
+        client_phone=client.phone,
+        client_email=client.email,
+        client_source=client.source,
+        client_comment=client.comment,
+        vehicle_plate_number=vehicle.plate_number if vehicle is not None else None,
+        vehicle_make_model=vehicle.make_model if vehicle is not None else None,
+        vehicle_year=vehicle.year if vehicle is not None else None,
+        vehicle_vin=vehicle.vin if vehicle is not None else None,
+        vehicle_comment=vehicle.comment if vehicle is not None else None,
+        lines=[
+            WorkOrderDocumentLine(
+                line_type=item.line_type.value,
+                name=item.name,
+                quantity=Decimal(item.quantity),
+                unit_price=Decimal(item.unit_price),
+                line_total=Decimal(item.line_total),
+                comment=item.comment,
+            )
+            for item in lines
+        ],
+        payments=[
+            WorkOrderDocumentPayment(
+                amount=Decimal(item.amount),
+                method=item.method.value,
+                paid_at=item.paid_at,
+                comment=item.comment,
+            )
+            for item in payments
+        ],
+    )
+
+    file_name_base = f"work-order-{order.id}"
+    if format == "html":
+        content = render_work_order_html(snapshot)
+        return Response(
+            content=content,
+            media_type="text/html; charset=utf-8",
+            headers={"Content-Disposition": f'inline; filename="{file_name_base}.html"'},
+        )
+    if format == "docx":
+        content = render_work_order_docx(snapshot)
+        return StreamingResponse(
+            iter([content]),
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f'attachment; filename="{file_name_base}.docx"'},
+        )
+    if format == "pdf":
+        try:
+            content = render_work_order_pdf(snapshot)
+        except RuntimeError as exc:
+            raise AppError(
+                status_code=503,
+                code="pdf_renderer_unavailable",
+                message="PDF renderer is unavailable on this server",
+            ) from exc
+        return StreamingResponse(
+            iter([content]),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{file_name_base}.pdf"'},
+        )
+
+    raise AppError(status_code=400, code="invalid_document_format", message="Unsupported document format")

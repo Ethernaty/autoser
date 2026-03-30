@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Route } from "next";
@@ -13,6 +13,7 @@ import { Button, FormActions, FormField, Input, Modal, PhoneInput, Textarea } fr
 import { PageLayout } from "@/design-system/patterns";
 import { createClient, fetchClients, mvpQueryKeys, updateClient } from "@/features/workspace/api/mvp-api";
 import type { ClientRecord } from "@/features/workspace/types/mvp-types";
+import { useI18n } from "@/shared/i18n";
 
 const PAGE_SIZE = 20;
 
@@ -35,6 +36,7 @@ function defaultClientForm(): ClientForm {
 }
 
 export function ClientsScreen(): JSX.Element {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();
@@ -145,26 +147,25 @@ export function ClientsScreen(): JSX.Element {
     event.preventDefault();
 
     if (!form.name.trim() || !form.phone.trim()) {
-      setFormError("Name and phone are required.");
+      setFormError(t("clients.form.error.required"));
       return;
     }
 
     const normalizedPhone = normalizePhoneForSubmit(form.phone);
     if (!normalizedPhone) {
-      setFormError("Enter a valid phone number.");
+      setFormError(t("clients.form.error.phone"));
       return;
     }
 
-    // Guard against duplicate client creation/update by phone before submit.
     try {
       const lookup = await fetchClients({ q: normalizedPhone, limit: 20, offset: 0 });
       const duplicate = lookup.items.find((item) => item.phone === normalizedPhone);
       if (duplicate && (!editingClient || duplicate.id !== editingClient.id)) {
-        setFormError(`Client with this phone already exists: ${duplicate.name}.`);
+        setFormError(t("clients.form.error.duplicate", { name: duplicate.name }));
         return;
       }
     } catch {
-      // Do not block form submit if precheck fails; backend remains the source of truth.
+      // backend remains source of truth
     }
 
     setFormError(null);
@@ -202,7 +203,7 @@ export function ClientsScreen(): JSX.Element {
     () => [
       {
         id: "name",
-        header: "Client",
+        header: t("clients.table.client"),
         minWidth: 320,
         cell: (row) => {
           const secondary = row.email ? `${formatPhoneForDisplay(row.phone)} | ${row.email}` : formatPhoneForDisplay(row.phone);
@@ -219,28 +220,28 @@ export function ClientsScreen(): JSX.Element {
       },
       {
         id: "updated",
-        header: "Last update",
+        header: t("clients.table.last_update"),
         minWidth: 190,
         align: "right",
         cell: (row) => new Date(row.updated_at).toLocaleString()
       }
     ],
-    []
+    [t]
   );
 
   return (
     <PageLayout
-      title="Clients"
-      subtitle="Fast client directory for daily operations"
+      title={t("clients.title")}
+      subtitle={t("clients.subtitle")}
       className="space-y-2"
       actions={
         <Button onClick={onOpenCreate} variant="primary">
-          Add client
+          {t("clients.add")}
         </Button>
       }
     >
       <div className="space-y-1.5">
-        <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by name, phone or email" />
+        <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("clients.search_placeholder")} />
 
         <DataTable
           columns={columns}
@@ -252,17 +253,17 @@ export function ClientsScreen(): JSX.Element {
           loading={clientsQuery.isLoading}
           error={clientsQuery.error?.message}
           onRetry={() => void clientsQuery.refetch()}
-          emptyTitle="No clients yet"
-          emptyDescription="Start by adding your first client."
+          emptyTitle={t("clients.empty.title")}
+          emptyDescription={t("clients.empty.description")}
           emptyAction={
             <Button variant="primary" onClick={onOpenCreate}>
-              Add client
+              {t("clients.add")}
             </Button>
           }
           rowActions={[
             {
               id: "edit",
-              label: "Edit",
+              label: t("common.edit"),
               onClick: onOpenEdit,
               variant: "secondary"
             }
@@ -287,38 +288,38 @@ export function ClientsScreen(): JSX.Element {
       <Modal
         open={modalOpen}
         onOpenChange={setModalOpen}
-        title={editingClient ? "Edit client" : "Create client"}
-        description={editingClient ? "Update client details" : "Create a new client card"}
+        title={editingClient ? t("clients.modal.edit_title") : t("clients.modal.create_title")}
+        description={editingClient ? t("clients.modal.edit_description") : t("clients.modal.create_description")}
         footer={
           <FormActions>
             <Button variant="secondary" onClick={() => setModalOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" form="client-form" loading={createMutation.isPending || updateMutation.isPending}>
-              {editingClient ? "Save" : "Create"}
+              {editingClient ? t("common.save") : t("common.create")}
             </Button>
           </FormActions>
         }
       >
         <form id="client-form" className="space-y-2" onSubmit={(event) => void onSubmit(event)}>
-          <FormField id="client-name" label="Name" required>
+          <FormField id="client-name" label={t("clients.form.full_name")} required>
             <Input id="client-name" value={form.name} onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))} />
           </FormField>
-          <FormField id="client-phone" label="Phone" required>
+          <FormField id="client-phone" label={t("common.phone")} required>
             <PhoneInput id="client-phone" value={form.phone} onChange={(phone) => setForm((prev) => ({ ...prev, phone }))} />
           </FormField>
-          <FormField id="client-email" label="Email">
+          <FormField id="client-email" label={t("common.email")}>
             <Input id="client-email" value={form.email} onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))} />
           </FormField>
-          <FormField id="client-source" label="Откуда пришел клиент">
+          <FormField id="client-source" label={t("clients.form.source")}>
             <Input
               id="client-source"
               value={form.source}
               onChange={(event) => setForm((prev) => ({ ...prev, source: event.target.value }))}
-              placeholder="Например: Instagram, рекомендация, сайт"
+              placeholder={t("clients.form.source_placeholder")}
             />
           </FormField>
-          <FormField id="client-comment" label="Comment">
+          <FormField id="client-comment" label={t("common.comment")}>
             <Textarea
               id="client-comment"
               value={form.comment}

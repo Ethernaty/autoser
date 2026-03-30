@@ -8,5 +8,6 @@ export * from "@/features/workspace/ui/orders-screen";
 export * from "@/features/workspace/ui/work-order-intake-screen";
 export * from "@/features/workspace/ui/work-order-detail-screen";
 export * from "@/features/workspace/ui/workspace-settings-screen";
+export * from "@/features/workspace/ui/support-screen";
 export * from "@/features/workspace/ui/order-status-badge";
 export * from "@/features/workspace/ui/workspace-switcher";

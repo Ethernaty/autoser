@@ -12,6 +12,7 @@ from app.repositories.order_repository import OrderRepository
 from app.repositories.payment_repository import PaymentRepository
 from app.repositories.plan_repository import PlanRepository
 from app.repositories.subscription_repository import SubscriptionRepository
+from app.repositories.support_ticket_repository import SupportTicketRepository
 from app.repositories.tenant_repository import TenantRepository
 from app.repositories.tenant_feature_override_repository import TenantFeatureOverrideRepository
 from app.repositories.usage_counter_repository import UsageCounterRepository
@@ -33,6 +34,7 @@ __all__ = [
     "IntegrationCredentialRepository",
     "PlanRepository",
     "SubscriptionRepository",
+    "SupportTicketRepository",
     "TenantFeatureOverrideRepository",
     "UsageCounterRepository",
     "WebhookEndpointRepository",

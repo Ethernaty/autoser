@@ -7,6 +7,7 @@ import type {
   ClientCreatePayload,
   ClientRecord,
   ClientUpdatePayload,
+  DashboardAnalytics,
   DashboardSummary,
   EmployeeCreatePayload,
   EmployeeRecord,
@@ -18,6 +19,12 @@ import type {
   PaymentRecord,
   VehicleCreatePayload,
   VehicleRecord,
+  WorkOrderHistoryItem,
+  SupportTicketCategory,
+  SupportTicketCreatePayload,
+  SupportTicketListResponse,
+  SupportTicketRecord,
+  SupportTicketStatus,
   WorkOrderTimelineEvent,
   VehicleUpdatePayload,
   WorkOrderCreatePayload,
@@ -100,6 +107,15 @@ export async function getDashboardSummary(context: WorkspaceContext, recentLimit
   const query = new URLSearchParams();
   query.set("recent_limit", String(Math.min(50, Math.max(1, recentLimit))));
   return backendRequest<DashboardSummary>(`/dashboard/summary?${query.toString()}`, {
+    method: "GET",
+    headers: authHeader(context)
+  });
+}
+
+export async function getDashboardAnalytics(context: WorkspaceContext, months = 12): Promise<DashboardAnalytics> {
+  const query = new URLSearchParams();
+  query.set("months", String(Math.min(24, Math.max(3, months))));
+  return backendRequest<DashboardAnalytics>(`/dashboard/analytics?${query.toString()}`, {
     method: "GET",
     headers: authHeader(context)
   });
@@ -194,6 +210,20 @@ export async function listVehiclesByClient(context: WorkspaceContext, clientId: 
   return payload;
 }
 
+export async function listClientWorkOrders(
+  context: WorkspaceContext,
+  clientId: string,
+  params: { limit?: number; offset?: number } = {}
+): Promise<WorkOrderHistoryItem[]> {
+  const query = new URLSearchParams();
+  query.set("limit", String(params.limit ?? 20));
+  query.set("offset", String(params.offset ?? 0));
+  return backendRequest<WorkOrderHistoryItem[]>(`/clients/${clientId}/work-orders?${query.toString()}`, {
+    method: "GET",
+    headers: authHeader(context)
+  });
+}
+
 export async function getVehicle(context: WorkspaceContext, vehicleId: string): Promise<VehicleRecord> {
   const payload = await backendRequest<VehicleRecord>(`/vehicles/${vehicleId}`, {
     method: "GET",
@@ -246,6 +276,20 @@ export async function listVehicleWorkOrders(
   });
   payload.forEach((item) => assertTenantScope(context, item.tenant_id, "work_order"));
   return payload;
+}
+
+export async function listVehicleHistory(
+  context: WorkspaceContext,
+  vehicleId: string,
+  params: { limit?: number; offset?: number } = {}
+): Promise<WorkOrderHistoryItem[]> {
+  const query = new URLSearchParams();
+  query.set("limit", String(params.limit ?? 50));
+  query.set("offset", String(params.offset ?? 0));
+  return backendRequest<WorkOrderHistoryItem[]>(`/vehicles/${vehicleId}/history?${query.toString()}`, {
+    method: "GET",
+    headers: authHeader(context)
+  });
 }
 
 export async function listEmployees(
@@ -364,6 +408,18 @@ export async function listWorkOrderTimeline(
   return backendRequest<WorkOrderTimelineEvent[]>(`/work-orders/${workOrderId}/timeline?${query.toString()}`, {
     method: "GET",
     headers: authHeader(context)
+  });
+}
+
+export async function addWorkOrderTimelineComment(
+  context: WorkspaceContext,
+  workOrderId: string,
+  comment: string
+): Promise<void> {
+  await backendRequest<void>(`/work-orders/${workOrderId}/timeline/comments`, {
+    method: "POST",
+    headers: authHeader(context),
+    body: JSON.stringify({ comment })
   });
 }
 
@@ -516,4 +572,63 @@ export async function createWorkOrderPayment(
   });
   assertTenantScope(context, payment.tenant_id, "payment");
   return payment;
+}
+
+export async function listSupportTickets(
+  context: WorkspaceContext,
+  params: {
+    q?: string;
+    status?: SupportTicketStatus;
+    category?: SupportTicketCategory;
+    my_only?: boolean;
+    limit?: number;
+    offset?: number;
+  }
+): Promise<SupportTicketListResponse> {
+  const query = new URLSearchParams();
+  if (params.q) {
+    query.set("q", params.q);
+  }
+  if (params.status) {
+    query.set("status", params.status);
+  }
+  if (params.category) {
+    query.set("category", params.category);
+  }
+  if (params.my_only) {
+    query.set("my_only", "true");
+  }
+  query.set("limit", String(params.limit ?? 20));
+  query.set("offset", String(params.offset ?? 0));
+
+  const payload = await backendRequest<SupportTicketListResponse>(`/support/tickets/?${query.toString()}`, {
+    method: "GET",
+    headers: authHeader(context)
+  });
+  return assertTenantScopedPage(context, payload, "support_ticket");
+}
+
+export async function createSupportTicket(
+  context: WorkspaceContext,
+  payload: SupportTicketCreatePayload
+): Promise<SupportTicketRecord> {
+  const ticket = await backendRequest<SupportTicketRecord>("/support/tickets/", {
+    method: "POST",
+    headers: authHeader(context),
+    body: JSON.stringify(payload)
+  });
+  return assertTenantScopedItem(context, ticket, "support_ticket");
+}
+
+export async function patchSupportTicketStatus(
+  context: WorkspaceContext,
+  ticketId: string,
+  status: SupportTicketStatus
+): Promise<SupportTicketRecord> {
+  const ticket = await backendRequest<SupportTicketRecord>(`/support/tickets/${ticketId}/status`, {
+    method: "PATCH",
+    headers: authHeader(context),
+    body: JSON.stringify({ status })
+  });
+  return assertTenantScopedItem(context, ticket, "support_ticket");
 }

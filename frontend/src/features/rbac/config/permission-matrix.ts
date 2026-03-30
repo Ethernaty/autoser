@@ -21,6 +21,9 @@ export const PERMISSION_MATRIX: Readonly<Record<WorkspaceRole, readonly Permissi
     "orders.close",
     "payments.read",
     "payments.create",
+    "support.read",
+    "support.create",
+    "support.update",
     "workspace_settings.read",
     "workspace_settings.manage",
     "audit.read"
@@ -45,6 +48,9 @@ export const PERMISSION_MATRIX: Readonly<Record<WorkspaceRole, readonly Permissi
     "orders.close",
     "payments.read",
     "payments.create",
+    "support.read",
+    "support.create",
+    "support.update",
     "workspace_settings.read",
     "workspace_settings.manage",
     "audit.read"
@@ -65,6 +71,9 @@ export const PERMISSION_MATRIX: Readonly<Record<WorkspaceRole, readonly Permissi
     "orders.close",
     "payments.read",
     "payments.create",
+    "support.read",
+    "support.create",
+    "support.update",
     "workspace_settings.read",
     "audit.read"
   ],
@@ -78,6 +87,8 @@ export const PERMISSION_MATRIX: Readonly<Record<WorkspaceRole, readonly Permissi
     "orders.change_status",
     "payments.read",
     "payments.create",
+    "support.read",
+    "support.create",
     "workspace_settings.read"
   ]
 };
@@ -102,6 +113,9 @@ const ACTION_ALIASES: Readonly<Record<PermissionAction, PermissionAction>> = {
   "orders.close": "orders.close",
   "payments.read": "payments.read",
   "payments.create": "payments.create",
+  "support.read": "support.read",
+  "support.create": "support.create",
+  "support.update": "support.update",
   "workspace_settings.read": "workspace_settings.read",
   "workspace_settings.manage": "workspace_settings.manage",
   "audit.read": "audit.read",

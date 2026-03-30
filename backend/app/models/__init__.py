@@ -11,6 +11,7 @@ from app.models.order import Order, OrderStatus
 from app.models.payment import Payment, PaymentMethod
 from app.models.plan import Plan
 from app.models.subscription import Subscription, SubscriptionStatus
+from app.models.support_ticket import SupportTicket, SupportTicketCategory, SupportTicketStatus
 from app.models.tenant import Tenant, TenantState
 from app.models.tenant_feature_override import TenantFeatureOverride
 from app.models.usage_counter import UsageCounter
@@ -46,6 +47,9 @@ __all__ = [
     "PaymentMethod",
     "Subscription",
     "SubscriptionStatus",
+    "SupportTicket",
+    "SupportTicketCategory",
+    "SupportTicketStatus",
     "TenantFeatureOverride",
     "UsageCounter",
     "Vehicle",

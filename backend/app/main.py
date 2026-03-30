@@ -12,6 +12,7 @@ from app.controllers.dashboard_controller import router as dashboard_router
 from app.controllers.employee_controller import legacy_router as employee_legacy_router
 from app.controllers.employee_controller import router as employee_router
 from app.controllers.health_controller import router as health_router
+from app.controllers.support_controller import router as support_router
 from app.controllers.vehicle_controller import router as vehicle_router
 from app.controllers.work_order_controller import legacy_router as work_order_legacy_router
 from app.controllers.work_order_controller import router as work_order_router
@@ -138,6 +139,7 @@ app.include_router(employee_router)
 app.include_router(work_order_router)
 app.include_router(workspace_router)
 app.include_router(dashboard_router)
+app.include_router(support_router)
 app.include_router(employee_legacy_router)
 app.include_router(work_order_legacy_router)
 

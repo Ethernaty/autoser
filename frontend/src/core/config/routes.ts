@@ -13,6 +13,7 @@ export const ROUTES = {
   workOrders: "/app/work-orders",
   workOrderNew: "/app/work-orders/new",
   workOrderDetail: (workOrderId: string) => `/app/work-orders/${workOrderId}`,
+  support: "/app/support",
   settings: "/app/settings",
   orders: "/app/orders",
   newOrder: "/app/new-order",

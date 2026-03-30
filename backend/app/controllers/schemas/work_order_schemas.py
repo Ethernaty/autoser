@@ -131,13 +131,17 @@ class WorkOrderResponse(BaseModel):
     id: UUID
     tenant_id: UUID
     client_id: UUID
+    client_name: str | None = None
     vehicle_id: UUID | None
+    vehicle_plate_number: str | None = None
+    vehicle_make_model: str | None = None
     assigned_employee_id: UUID | None
     assigned_user_id: UUID | None
     description: str
     total_amount: Decimal
     price: Decimal
     status: OrderStatus
+    payment_state: str
     paid_amount: Decimal
     remaining_amount: Decimal
     created_at: datetime
@@ -157,4 +161,28 @@ class WorkOrderTimelineEventResponse(BaseModel):
     action: str
     message: str
     user_id: UUID
+    actor_email: str | None = None
+    actor_role: str | None = None
     created_at: datetime
+
+
+class WorkOrderTimelineCommentRequest(BaseModel):
+    comment: str = Field(min_length=1, max_length=2000)
+
+
+class WorkOrderHistoryItemResponse(BaseModel):
+    id: UUID
+    client_id: UUID
+    client_name: str | None = None
+    vehicle_id: UUID | None
+    vehicle_plate_number: str | None = None
+    vehicle_make_model: str | None = None
+    description: str
+    work_summary: str | None = None
+    status: OrderStatus
+    total_amount: Decimal
+    paid_amount: Decimal
+    remaining_amount: Decimal
+    visit_at: datetime
+    created_at: datetime
+    updated_at: datetime

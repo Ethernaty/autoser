@@ -3,6 +3,7 @@ import type {
   ClientCreatePayload,
   ClientRecord,
   ClientUpdatePayload,
+  DashboardAnalytics,
   DashboardSummary,
   EmployeeCreatePayload,
   EmployeeRecord,
@@ -14,6 +15,11 @@ import type {
   PaymentRecord,
   VehicleCreatePayload,
   VehicleRecord,
+  WorkOrderHistoryItem,
+  SupportTicketCreatePayload,
+  SupportTicketListResponse,
+  SupportTicketRecord,
+  SupportTicketStatus,
   WorkOrderTimelineEvent,
   VehicleUpdatePayload,
   WorkOrderCreatePayload,
@@ -30,11 +36,15 @@ export const mvpQueryKeys = {
   workspaceContext: ["workspace", "context"] as const,
   workspaceSettings: ["workspace", "settings"] as const,
   dashboardSummary: ["workspace", "dashboard", "summary"] as const,
+  dashboardAnalytics: (months: number) => ["workspace", "dashboard", "analytics", months] as const,
   clients: (q: string, limit: number, offset: number) => ["clients", q, limit, offset] as const,
   client: (clientId: string) => ["clients", "detail", clientId] as const,
+  clientWorkOrders: (clientId: string, limit: number, offset: number) =>
+    ["clients", "work-orders", clientId, limit, offset] as const,
   vehicles: (q: string, clientId: string, limit: number, offset: number) => ["vehicles", q, clientId, limit, offset] as const,
   vehiclesByClient: (clientId: string) => ["vehicles", "by-client", clientId] as const,
   vehicle: (vehicleId: string) => ["vehicles", "detail", vehicleId] as const,
+  vehicleHistory: (vehicleId: string, limit: number, offset: number) => ["vehicles", "history", vehicleId, limit, offset] as const,
   vehicleWorkOrders: (vehicleId: string) => ["vehicles", "work-orders", vehicleId] as const,
   employees: (q: string, role: string, limit: number, offset: number) => ["employees", q, role, limit, offset] as const,
   employee: (employeeId: string) => ["employees", "detail", employeeId] as const,
@@ -43,7 +53,9 @@ export const mvpQueryKeys = {
   workOrderTimeline: (workOrderId: string, limit: number, offset: number) =>
     ["work-orders", workOrderId, "timeline", limit, offset] as const,
   workOrderLines: (workOrderId: string) => ["work-orders", workOrderId, "lines"] as const,
-  workOrderPayments: (workOrderId: string) => ["work-orders", workOrderId, "payments"] as const
+  workOrderPayments: (workOrderId: string) => ["work-orders", workOrderId, "payments"] as const,
+  supportTickets: (q: string, status: string, category: string, myOnly: boolean, limit: number, offset: number) =>
+    ["support", "tickets", q, status, category, myOnly, limit, offset] as const
 };
 
 export async function fetchWorkspaceContext(): Promise<WorkspaceContextResponse> {
@@ -68,6 +80,13 @@ export async function fetchDashboardSummary(recentLimit = 10): Promise<Dashboard
   return response.data;
 }
 
+export async function fetchDashboardAnalytics(months = 12): Promise<DashboardAnalytics> {
+  const response = await apiClient.get<DashboardAnalytics>("/api/workspace/dashboard/analytics", {
+    params: { months }
+  });
+  return response.data;
+}
+
 export async function fetchClients(params: { q?: string; limit?: number; offset?: number }): Promise<PagedResponse<ClientRecord>> {
   const response = await apiClient.get<PagedResponse<ClientRecord>>("/api/workspace/clients", {
     params: {
@@ -81,6 +100,19 @@ export async function fetchClients(params: { q?: string; limit?: number; offset?
 
 export async function fetchClient(clientId: string): Promise<ClientRecord> {
   const response = await apiClient.get<ClientRecord>(`/api/workspace/clients/${clientId}`);
+  return response.data;
+}
+
+export async function fetchClientWorkOrders(
+  clientId: string,
+  params?: { limit?: number; offset?: number }
+): Promise<WorkOrderHistoryItem[]> {
+  const response = await apiClient.get<WorkOrderHistoryItem[]>(`/api/workspace/clients/${clientId}/work-orders`, {
+    params: {
+      limit: params?.limit ?? 20,
+      offset: params?.offset ?? 0
+    }
+  });
   return response.data;
 }
 
@@ -118,6 +150,19 @@ export async function fetchVehiclesByClient(clientId: string): Promise<VehicleRe
 
 export async function fetchVehicle(vehicleId: string): Promise<VehicleRecord> {
   const response = await apiClient.get<VehicleRecord>(`/api/workspace/vehicles/${vehicleId}`);
+  return response.data;
+}
+
+export async function fetchVehicleHistory(
+  vehicleId: string,
+  params?: { limit?: number; offset?: number }
+): Promise<WorkOrderHistoryItem[]> {
+  const response = await apiClient.get<WorkOrderHistoryItem[]>(`/api/workspace/vehicles/${vehicleId}/history`, {
+    params: {
+      limit: params?.limit ?? 50,
+      offset: params?.offset ?? 0
+    }
+  });
   return response.data;
 }
 
@@ -209,6 +254,10 @@ export async function fetchWorkOrderTimeline(
   return response.data;
 }
 
+export async function addWorkOrderTimelineComment(workOrderId: string, comment: string): Promise<void> {
+  await apiClient.post(`/api/workspace/work-orders/${workOrderId}/timeline/comments`, { comment });
+}
+
 export async function createWorkOrder(payload: WorkOrderCreatePayload): Promise<WorkOrderRecord> {
   const response = await apiClient.post<WorkOrderRecord>("/api/workspace/work-orders", payload);
   return response.data;
@@ -273,5 +322,36 @@ export async function fetchWorkOrderPayments(workOrderId: string): Promise<Payme
 
 export async function createWorkOrderPayment(workOrderId: string, payload: PaymentCreatePayload): Promise<PaymentRecord> {
   const response = await apiClient.post<PaymentRecord>(`/api/workspace/work-orders/${workOrderId}/payments`, payload);
+  return response.data;
+}
+
+export async function fetchSupportTickets(params: {
+  q?: string;
+  status?: SupportTicketStatus;
+  category?: string;
+  my_only?: boolean;
+  limit?: number;
+  offset?: number;
+}): Promise<SupportTicketListResponse> {
+  const response = await apiClient.get<SupportTicketListResponse>("/api/workspace/support/tickets", {
+    params: {
+      q: params.q ?? "",
+      status: params.status,
+      category: params.category,
+      my_only: params.my_only ?? false,
+      limit: params.limit ?? 20,
+      offset: params.offset ?? 0
+    }
+  });
+  return response.data;
+}
+
+export async function createSupportTicket(payload: SupportTicketCreatePayload): Promise<SupportTicketRecord> {
+  const response = await apiClient.post<SupportTicketRecord>("/api/workspace/support/tickets", payload);
+  return response.data;
+}
+
+export async function updateSupportTicketStatus(ticketId: string, status: SupportTicketStatus): Promise<SupportTicketRecord> {
+  const response = await apiClient.patch<SupportTicketRecord>(`/api/workspace/support/tickets/${ticketId}/status`, { status });
   return response.data;
 }

@@ -12,6 +12,7 @@ from app.services.order_service import OrderService
 from app.services.password_hasher import PasswordHasher
 from app.services.plan_service import PlanService
 from app.services.subscription_service import SubscriptionService
+from app.services.support_ticket_service import SupportTicketService
 from app.services.tenant_lifecycle_service import TenantLifecycleService
 from app.services.usage_quota_service import UsageQuotaService
 from app.services.vehicle_service import VehicleService
@@ -32,6 +33,7 @@ __all__ = [
     "JWTService",
     "PlanService",
     "SubscriptionService",
+    "SupportTicketService",
     "TenantLifecycleService",
     "UsageQuotaService",
     "PasswordHasher",

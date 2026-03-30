@@ -1,10 +1,11 @@
-"use client";
+﻿"use client";
 
 import { Loader2, MapPin } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { cn } from "@/core/lib/utils";
 import { Input } from "@/design-system/primitives/input";
+import { useI18n } from "@/shared/i18n";
 
 type AddressSuggestion = {
   label: string;
@@ -46,6 +47,7 @@ export function AddressAutocompleteField({
   onSuggestionSelect,
   className
 }: AddressAutocompleteFieldProps): JSX.Element {
+  const { t } = useI18n();
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -127,7 +129,7 @@ export function AddressAutocompleteField({
           return;
         }
         setSuggestions([]);
-        setError(fetchError instanceof Error ? fetchError.message : "Address lookup failed");
+        setError(fetchError instanceof Error ? fetchError.message : t("settings.address.error_lookup"));
       } finally {
         setLoading(false);
       }
@@ -137,7 +139,7 @@ export function AddressAutocompleteField({
       controller.abort();
       window.clearTimeout(timeout);
     };
-  }, [value]);
+  }, [t, value]);
 
   const showPanel = useMemo(() => {
     return open && (loading || suggestions.length > 0 || error);
@@ -154,7 +156,7 @@ export function AddressAutocompleteField({
           onChange(event.target.value);
           setOpen(true);
         }}
-        placeholder="Search and select address"
+        placeholder={t("settings.address.placeholder")}
       />
 
       {showPanel ? (
@@ -162,14 +164,18 @@ export function AddressAutocompleteField({
           {loading ? (
             <div className="flex items-center gap-2 px-2 py-2 text-xs text-neutral-600">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Searching address suggestions...
+              {t("settings.address.loading")}
             </div>
           ) : null}
 
-          {!loading && error ? <p className="px-2 py-2 text-xs text-error">Address lookup unavailable: {error}</p> : null}
+          {!loading && error ? (
+            <p className="px-2 py-2 text-xs text-error">
+              {t("settings.address.error_unavailable")}: {error}
+            </p>
+          ) : null}
 
           {!loading && !error && suggestions.length === 0 ? (
-            <p className="px-2 py-2 text-xs text-neutral-600">No suggestions found. You can keep manual address text.</p>
+            <p className="px-2 py-2 text-xs text-neutral-600">{t("settings.address.empty_suggestions")}</p>
           ) : null}
 
           {!loading && !error

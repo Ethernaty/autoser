@@ -12,8 +12,10 @@ import { PhoneInput } from "@/design-system/primitives/phone-input";
 import { PageLayout } from "@/design-system/patterns";
 import { DisableIfNoAccess } from "@/features/access/ui/access-guard";
 import { useWorkspaceClientSearchQuery, useCreateWorkflowOrderMutation } from "@/features/workspace/hooks";
+import { useI18n } from "@/shared/i18n";
 
 export function NewOrderScreen(): JSX.Element {
+  const { t } = useI18n();
   const router = useRouter();
 
   const [phone, setPhone] = useState("");
@@ -41,11 +43,11 @@ export function NewOrderScreen(): JSX.Element {
   };
 
   return (
-    <PageLayout title="New order" subtitle="Fast order intake for front-desk flow">
+    <PageLayout title={t("legacy_new_order.title")} subtitle={t("legacy_new_order.subtitle")}>
       <Card className="space-y-3 p-3">
         <div className="space-y-1">
           <label className="text-sm font-medium text-neutral-700" htmlFor="lookup">
-            Phone lookup
+            {t("legacy_new_order.phone_lookup")}
           </label>
           <PhoneInput
             id="lookup"
@@ -59,7 +61,7 @@ export function NewOrderScreen(): JSX.Element {
 
         {suggestionsQuery.data?.items?.length ? (
           <div className="space-y-1">
-            <p className="text-sm font-medium text-neutral-700">Matches</p>
+            <p className="text-sm font-medium text-neutral-700">{t("legacy_new_order.matches")}</p>
             <div className="grid grid-cols-1 gap-1 md:grid-cols-2">
               {suggestionsQuery.data.items.map((client) => (
                 <button
@@ -87,14 +89,14 @@ export function NewOrderScreen(): JSX.Element {
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
             <div className="space-y-1">
               <label className="text-sm font-medium text-neutral-700" htmlFor="phone">
-                Phone
+                {t("common.phone")}
               </label>
               <PhoneInput id="phone" required value={phone} onChange={setPhone} />
             </div>
 
             <div className="space-y-1">
               <label className="text-sm font-medium text-neutral-700" htmlFor="clientName">
-                Client name (optional)
+                {t("legacy_new_order.client_name_optional")}
               </label>
               <Input id="clientName" value={clientName} onChange={(event) => setClientName(event.target.value)} />
             </div>
@@ -102,7 +104,7 @@ export function NewOrderScreen(): JSX.Element {
 
           <div className="space-y-1">
             <label className="text-sm font-medium text-neutral-700" htmlFor="description">
-              Work description
+              {t("legacy_new_order.work_description")}
             </label>
             <textarea
               id="description"
@@ -115,7 +117,7 @@ export function NewOrderScreen(): JSX.Element {
 
           <div className="space-y-1">
             <label className="text-sm font-medium text-neutral-700" htmlFor="price">
-              Price
+              {t("legacy_new_order.price")}
             </label>
             <Input id="price" required value={price} onChange={(event) => setPrice(event.target.value)} placeholder="1500.00" />
           </div>
@@ -127,11 +129,11 @@ export function NewOrderScreen(): JSX.Element {
               {(disabled, onUpgrade) => (
                 <div className="flex items-center gap-1">
                   <Button type="submit" disabled={disabled} loading={createMutation.isPending}>
-                    Create order
+                    {t("legacy_new_order.create_order")}
                   </Button>
                   {disabled ? (
                     <Button type="button" variant="quiet" onClick={onUpgrade}>
-                      Upgrade
+                      {t("upgrade.short")}
                     </Button>
                   ) : null}
                 </div>

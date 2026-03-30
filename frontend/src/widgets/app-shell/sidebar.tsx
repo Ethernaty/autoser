@@ -9,32 +9,37 @@ import {
   UserCog,
   UsersRound,
   Car,
-  ClipboardList
+  ClipboardList,
+  LifeBuoy
 } from "lucide-react";
 
 import { ROUTES } from "@/core/config/routes";
 import { Button } from "@/design-system/primitives/button";
 import { cn } from "@/core/lib/utils";
 import { useAuthStore } from "@/features/auth/model/auth-store";
+import { useI18n } from "@/shared/i18n";
 import { useUiStore } from "@/shared/ui/ui-store";
 
 const navGroups = [
   {
-    label: "Operations",
+    labelKey: "shell.nav.operations",
     items: [
-      { label: "Dashboard", href: ROUTES.dashboard, icon: LayoutDashboard },
-      { label: "Work orders", href: ROUTES.workOrders, icon: ClipboardList },
-      { label: "Clients", href: ROUTES.clients, icon: UsersRound },
-      { label: "Vehicles", href: ROUTES.vehicles, icon: Car }
+      { labelKey: "shell.nav.dashboard", href: ROUTES.dashboard, icon: LayoutDashboard },
+      { labelKey: "shell.nav.work_orders", href: ROUTES.workOrders, icon: ClipboardList },
+      { labelKey: "shell.nav.clients", href: ROUTES.clients, icon: UsersRound },
+      { labelKey: "shell.nav.vehicles", href: ROUTES.vehicles, icon: Car }
     ]
   },
   {
-    label: "Team",
-    items: [{ label: "Employees", href: ROUTES.employees, icon: UserCog }]
+    labelKey: "shell.nav.team",
+    items: [{ labelKey: "shell.nav.employees", href: ROUTES.employees, icon: UserCog }]
   },
   {
-    label: "System",
-    items: [{ label: "Settings", href: ROUTES.settings, icon: Settings }]
+    labelKey: "shell.nav.system",
+    items: [
+      { labelKey: "shell.nav.support", href: ROUTES.support, icon: LifeBuoy },
+      { labelKey: "shell.nav.settings", href: ROUTES.settings, icon: Settings }
+    ]
   }
 ] as const;
 
@@ -42,6 +47,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }): JSX.Element {
   const pathname = usePathname();
   const setCollapsed = useUiStore((state) => state.setSidebarCollapsed);
   const session = useAuthStore((state) => state.session);
+  const { t } = useI18n();
 
   return (
     <aside
@@ -53,18 +59,20 @@ export function Sidebar({ collapsed }: { collapsed: boolean }): JSX.Element {
       <div className={cn("flex h-header items-center border-b border-neutral-200 px-3", collapsed ? "justify-center" : "justify-between")}>
         {!collapsed ? (
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-neutral-900">AutoService CRM</p>
-            <p className="truncate text-xs text-neutral-500">{session?.tenant.slug ?? "workspace"}</p>
+            <p className="truncate text-sm font-semibold text-neutral-900">{t("shell.brand")}</p>
+            <p className="truncate text-xs text-neutral-500">{session?.tenant.slug ?? t("shell.workspace_fallback")}</p>
           </div>
         ) : null}
-        <Button variant="ghost" size="sm" onClick={() => setCollapsed(!collapsed)} aria-label="Toggle sidebar">
+        <Button variant="ghost" size="sm" onClick={() => setCollapsed(!collapsed)} aria-label={t("shell.toggle_sidebar")}>
           <PanelLeftClose className="h-4 w-4" />
         </Button>
       </div>
-      <nav className="space-y-4 p-2" aria-label="Primary navigation">
+      <nav className="space-y-4 p-2" aria-label={t("shell.nav.primary")}>
         {navGroups.map((group) => (
-          <div key={group.label} className="space-y-1">
-            {!collapsed ? <p className="px-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-500">{group.label}</p> : null}
+          <div key={group.labelKey} className="space-y-1">
+            {!collapsed ? (
+              <p className="px-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-500">{t(group.labelKey)}</p>
+            ) : null}
             {group.items.map((item) => {
               const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
 
@@ -89,7 +97,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }): JSX.Element {
                     )}
                   />
                   <item.icon className="h-4 w-4 shrink-0" />
-                  {!collapsed ? <span className="truncate font-medium">{item.label}</span> : null}
+                  {!collapsed ? <span className="truncate font-medium">{t(item.labelKey)}</span> : null}
                 </Link>
               );
             })}

@@ -9,8 +9,10 @@ import { Input } from "@/design-system/primitives/input";
 import { DetailLayout, PageLayout, StateBoundary } from "@/design-system/patterns";
 import { useWorkspaceClientCardQuery } from "@/features/workspace/hooks";
 import { OrderStatusBadge } from "@/features/workspace/ui/order-status-badge";
+import { useI18n } from "@/shared/i18n";
 
 export function ClientCardScreen(): JSX.Element {
+  const { t } = useI18n();
   const [query, setQuery] = useState("");
   const [activeQuery, setActiveQuery] = useState("");
   const [clientId, setClientId] = useState<string | undefined>(undefined);
@@ -18,7 +20,7 @@ export function ClientCardScreen(): JSX.Element {
   const clientCardQuery = useWorkspaceClientCardQuery({ q: activeQuery, clientId });
 
   return (
-    <PageLayout title="Client card" subtitle="Find client and check order history">
+    <PageLayout title={t("client_card.title")} subtitle={t("client_card.subtitle")}>
       <Card className="p-3">
         <form
           className="flex flex-col gap-2 md:flex-row"
@@ -28,9 +30,9 @@ export function ClientCardScreen(): JSX.Element {
             setClientId(undefined);
           }}
         >
-          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Phone, name, email" />
+          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("client_card.search_placeholder")} />
           <Button type="submit" variant="secondary">
-            Search
+            {t("common.search")}
           </Button>
         </form>
       </Card>
@@ -40,7 +42,7 @@ export function ClientCardScreen(): JSX.Element {
           <DetailLayout
             aside={
               <Card className="space-y-2 p-3">
-                <h3 className="text-lg font-semibold text-neutral-900">Matches</h3>
+                <h3 className="text-lg font-semibold text-neutral-900">{t("client_card.matches")}</h3>
                 {clientCardQuery.data.matches.length ? (
                   <div className="space-y-1">
                     {clientCardQuery.data.matches.map((client) => (
@@ -57,7 +59,7 @@ export function ClientCardScreen(): JSX.Element {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-neutral-600">No matches.</p>
+                  <p className="text-sm text-neutral-600">{t("client_card.no_matches")}</p>
                 )}
               </Card>
             }
@@ -66,12 +68,12 @@ export function ClientCardScreen(): JSX.Element {
               {clientCardQuery.data.selectedClient ? (
                 <>
                   <h2 className="text-xl font-semibold text-neutral-900">{clientCardQuery.data.selectedClient.name}</h2>
-                  <p className="text-sm text-neutral-700">Phone: {formatPhoneForDisplay(clientCardQuery.data.selectedClient.phone)}</p>
-                  <p className="text-sm text-neutral-700">Email: {clientCardQuery.data.selectedClient.email ?? "-"}</p>
-                  <p className="text-sm text-neutral-700">Comment: {clientCardQuery.data.selectedClient.comment ?? "-"}</p>
+                  <p className="text-sm text-neutral-700">{t("common.phone")}: {formatPhoneForDisplay(clientCardQuery.data.selectedClient.phone)}</p>
+                  <p className="text-sm text-neutral-700">{t("common.email")}: {clientCardQuery.data.selectedClient.email ?? "-"}</p>
+                  <p className="text-sm text-neutral-700">{t("common.comment")}: {clientCardQuery.data.selectedClient.comment ?? "-"}</p>
 
                   <div className="space-y-1 pt-2">
-                    <h3 className="text-base font-semibold text-neutral-900">Order history</h3>
+                    <h3 className="text-base font-semibold text-neutral-900">{t("client_card.order_history")}</h3>
                     {clientCardQuery.data.historyOrders.length ? (
                       clientCardQuery.data.historyOrders.map((order) => (
                         <div key={order.id} className="rounded-md border border-neutral-200 p-2">
@@ -85,12 +87,12 @@ export function ClientCardScreen(): JSX.Element {
                         </div>
                       ))
                     ) : (
-                      <p className="text-sm text-neutral-600">No orders.</p>
+                      <p className="text-sm text-neutral-600">{t("client_card.no_orders")}</p>
                     )}
                   </div>
                 </>
               ) : (
-                <p className="text-sm text-neutral-600">Select a client from search results.</p>
+                <p className="text-sm text-neutral-600">{t("client_card.select_client")}</p>
               )}
             </Card>
           </DetailLayout>

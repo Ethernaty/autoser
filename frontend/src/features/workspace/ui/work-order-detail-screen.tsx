@@ -1,31 +1,34 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ROUTES } from "@/core/config/routes";
+import { cn } from "@/core/lib/utils";
 import {
   Badge,
   Button,
   Card,
+  Combobox,
   FormActions,
   FormField,
   Input,
   Modal,
+  Select,
   Textarea
 } from "@/design-system/primitives";
 import { PageLayout, Section, StateBoundary } from "@/design-system/patterns";
+import { isApiClientError } from "@/shared/api/client";
 import {
+  addWorkOrderTimelineComment,
   addWorkOrderLine,
   assignWorkOrder,
-  attachWorkOrderVehicle,
   closeWorkOrder,
   createWorkOrderPayment,
   deleteWorkOrderLine,
   fetchEmployees,
   fetchVehicle,
-  fetchVehicles,
   fetchWorkOrder,
   fetchWorkOrderLines,
   fetchWorkOrderPayments,
@@ -34,7 +37,10 @@ import {
   setWorkOrderStatus,
   updateWorkOrderLine
 } from "@/features/workspace/api/mvp-api";
-import type { WorkOrderOrderLine, WorkOrderStatus } from "@/features/workspace/types/mvp-types";
+import type { WorkOrderOrderLine, WorkOrderPaymentState, WorkOrderStatus } from "@/features/workspace/types/mvp-types";
+import { useI18n } from "@/shared/i18n";
+
+const EMPLOYEE_LOOKUP_LIMIT = 50;
 
 function formatMoney(value: string): string {
   const parsed = Number(value);
@@ -44,20 +50,20 @@ function formatMoney(value: string): string {
   return parsed.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function statusLabel(status: WorkOrderStatus): string {
+function statusLabel(status: WorkOrderStatus, t: (key: string) => string): string {
   if (status === "in_progress") {
-    return "In progress";
+    return t("dashboard.status.in_progress");
   }
   if (status === "completed_unpaid") {
-    return "Completed (unpaid)";
+    return t("dashboard.status.completed_unpaid");
   }
   if (status === "completed_paid") {
-    return "Completed (paid)";
+    return t("dashboard.status.completed_paid");
   }
   if (status === "cancelled") {
-    return "Cancelled";
+    return t("dashboard.status.cancelled");
   }
-  return "New";
+  return t("dashboard.status.new");
 }
 
 function statusTone(status: WorkOrderStatus): "neutral" | "warning" | "success" | "error" {
@@ -73,14 +79,271 @@ function statusTone(status: WorkOrderStatus): "neutral" | "warning" | "success" 
   return "neutral";
 }
 
+function paymentStateLabel(state: WorkOrderPaymentState, t: (key: string) => string): string {
+  if (state === "paid") {
+    return t("work_orders.payment_state.paid");
+  }
+  if (state === "partial") {
+    return t("work_orders.payment_state.partial");
+  }
+  return t("work_orders.payment_state.unpaid");
+}
+
+function paymentStateTone(state: WorkOrderPaymentState): "neutral" | "warning" | "success" {
+  if (state === "paid") {
+    return "success";
+  }
+  if (state === "partial") {
+    return "warning";
+  }
+  return "neutral";
+}
+
+type TimelineKind = "created" | "status" | "payment" | "cancelled" | "amount" | "lines" | "assignee" | "vehicle" | "comment" | "other";
+
+type TimelinePresentation = {
+  kind: TimelineKind;
+  typeLabel: string;
+  title: string;
+  details: string | null;
+  statusFrom: WorkOrderStatus | null;
+  statusTo: WorkOrderStatus | null;
+};
+
+function parseWorkOrderStatus(value: string): WorkOrderStatus | null {
+  if (["new", "in_progress", "completed_unpaid", "completed_paid", "cancelled"].includes(value)) {
+    return value as WorkOrderStatus;
+  }
+  return null;
+}
+
+function statusFromMessage(message: string): { from: WorkOrderStatus; to: WorkOrderStatus } | null {
+  const match = message.match(/from\s+([a-z_]+)\s+to\s+([a-z_]+)/i);
+  if (!match) {
+    return null;
+  }
+  const from = parseWorkOrderStatus(match[1]);
+  const to = parseWorkOrderStatus(match[2]);
+  if (!from || !to) {
+    return null;
+  }
+  return { from, to };
+}
+
+function eventTypeLabel(kind: TimelineKind, t: (key: string) => string): string {
+  if (kind === "created") return t("work_order_timeline.type.created");
+  if (kind === "status") return t("work_order_timeline.type.status");
+  if (kind === "payment") return t("work_order_timeline.type.payment");
+  if (kind === "cancelled") return t("work_order_timeline.type.cancelled");
+  if (kind === "amount") return t("work_order_timeline.type.amount");
+  if (kind === "lines") return t("work_order_timeline.type.lines");
+  if (kind === "assignee") return t("work_order_timeline.type.assignee");
+  if (kind === "vehicle") return t("work_order_timeline.type.vehicle");
+  if (kind === "comment") return t("work_order_timeline.type.comment");
+  return t("work_order_timeline.type.other");
+}
+
+function timelinePresentation(
+  item: { action: string; message: string },
+  t: (key: string, values?: Record<string, string | number>) => string
+): TimelinePresentation {
+  if (item.action === "work_order_created") {
+    return {
+      kind: "created",
+      typeLabel: eventTypeLabel("created", t),
+      title: t("work_order_timeline.created"),
+      details: null,
+      statusFrom: null,
+      statusTo: null
+    };
+  }
+  if (item.action === "work_order_cancelled") {
+    return {
+      kind: "cancelled",
+      typeLabel: eventTypeLabel("cancelled", t),
+      title: t("work_order_timeline.cancelled"),
+      details: null,
+      statusFrom: null,
+      statusTo: null
+    };
+  }
+  if (item.action === "work_order_status_changed") {
+    const transition = statusFromMessage(item.message);
+    return {
+      kind: "status",
+      typeLabel: eventTypeLabel("status", t),
+      title: t("work_order_timeline.status_changed_generic"),
+      details: transition ? null : item.message,
+      statusFrom: transition?.from ?? null,
+      statusTo: transition?.to ?? null
+    };
+  }
+  if (item.action === "work_order_total_amount_changed") {
+    const match = item.message.match(/from\s+([0-9.]+)\s+to\s+([0-9.]+)/i);
+    return {
+      kind: "amount",
+      typeLabel: eventTypeLabel("amount", t),
+      title: t("work_order_timeline.total_changed_generic"),
+      details: match ? `${formatMoney(match[1])} -> ${formatMoney(match[2])}` : item.message,
+      statusFrom: null,
+      statusTo: null
+    };
+  }
+  if (item.action === "work_order_lines_changed") {
+    let title = t("work_order_timeline.lines_changed_generic");
+    if (item.message.startsWith("Added line")) {
+      title = t("work_order_timeline.lines_added");
+    } else if (item.message.startsWith("Updated line")) {
+      title = t("work_order_timeline.lines_updated");
+    } else if (item.message.startsWith("Removed line")) {
+      title = t("work_order_timeline.lines_removed");
+    }
+    return {
+      kind: "lines",
+      typeLabel: eventTypeLabel("lines", t),
+      title,
+      details: null,
+      statusFrom: null,
+      statusTo: null
+    };
+  }
+  if (item.action === "work_order_payment_recorded") {
+    return {
+      kind: "payment",
+      typeLabel: eventTypeLabel("payment", t),
+      title: t("work_order_timeline.payment_recorded"),
+      details: null,
+      statusFrom: null,
+      statusTo: null
+    };
+  }
+  if (item.action === "work_order_assignee_changed") {
+    return {
+      kind: "assignee",
+      typeLabel: eventTypeLabel("assignee", t),
+      title: t("work_order_timeline.assignee_changed"),
+      details: null,
+      statusFrom: null,
+      statusTo: null
+    };
+  }
+  if (item.action === "work_order_vehicle_changed") {
+    return {
+      kind: "vehicle",
+      typeLabel: eventTypeLabel("vehicle", t),
+      title: t("work_order_timeline.vehicle_changed"),
+      details: null,
+      statusFrom: null,
+      statusTo: null
+    };
+  }
+  if (item.action === "work_order_comment_added") {
+    return {
+      kind: "comment",
+      typeLabel: eventTypeLabel("comment", t),
+      title: t("work_order_timeline.comment_added"),
+      details: item.message,
+      statusFrom: null,
+      statusTo: null
+    };
+  }
+
+  return {
+    kind: "other",
+    typeLabel: eventTypeLabel("other", t),
+    title: item.message,
+    details: null,
+    statusFrom: null,
+    statusTo: null
+  };
+}
+
+function timelineKindStyles(kind: TimelineKind): {
+  dotClass: string;
+  chipClass: string;
+} {
+  if (kind === "created") return { dotClass: "bg-primary", chipClass: "bg-primary/10 text-primary" };
+  if (kind === "status") return { dotClass: "bg-warning", chipClass: "bg-warning/10 text-warning" };
+  if (kind === "payment") return { dotClass: "bg-success", chipClass: "bg-success/10 text-success" };
+  if (kind === "cancelled") return { dotClass: "bg-error", chipClass: "bg-error/10 text-error" };
+  if (kind === "amount") return { dotClass: "bg-amber-500", chipClass: "bg-amber-100 text-amber-700" };
+  if (kind === "lines") return { dotClass: "bg-indigo-500", chipClass: "bg-indigo-100 text-indigo-700" };
+  if (kind === "assignee") return { dotClass: "bg-cyan-500", chipClass: "bg-cyan-100 text-cyan-700" };
+  if (kind === "vehicle") return { dotClass: "bg-violet-500", chipClass: "bg-violet-100 text-violet-700" };
+  if (kind === "comment") return { dotClass: "bg-sky-500", chipClass: "bg-sky-100 text-sky-700" };
+  return { dotClass: "bg-neutral-400", chipClass: "bg-neutral-200 text-neutral-700" };
+}
+
+function formatRelativeTime(value: string, locale: "ru" | "en"): string {
+  const date = new Date(value);
+  const diffMs = date.getTime() - Date.now();
+  const absSeconds = Math.abs(Math.round(diffMs / 1000));
+
+  const rtf = new Intl.RelativeTimeFormat(locale === "ru" ? "ru-RU" : "en-US", { numeric: "auto" });
+  if (absSeconds < 60) return rtf.format(Math.round(diffMs / 1000), "second");
+  if (absSeconds < 3600) return rtf.format(Math.round(diffMs / (60 * 1000)), "minute");
+  if (absSeconds < 86400) return rtf.format(Math.round(diffMs / (60 * 60 * 1000)), "hour");
+  return rtf.format(Math.round(diffMs / (24 * 60 * 60 * 1000)), "day");
+}
+
+function resolveWorkOrderActionError(error: unknown, t: (key: string) => string): string {
+  if (isApiClientError(error)) {
+    if (error.code === "work_order_closed") {
+      return t("work_order_detail.error.lines_locked");
+    }
+    if (error.code === "cannot_mark_completed_paid") {
+      return t("work_order_detail.error.cannot_mark_completed_paid");
+    }
+    if (error.code === "cannot_cancel_paid_order") {
+      return t("work_order_detail.error.cannot_cancel_paid_order");
+    }
+    if (error.code === "payment_not_allowed_for_cancelled") {
+      return t("work_order_detail.error.payment_not_allowed_for_cancelled");
+    }
+    if (error.code === "total_below_paid_amount") {
+      return t("work_order_detail.error.total_below_paid_amount");
+    }
+    if (error.code === "completed_paid_payment_mismatch") {
+      return t("work_order_detail.error.completed_paid_payment_mismatch");
+    }
+    return error.message;
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return t("state.error.title");
+}
+
+function DetailMetric({
+  label,
+  value,
+  accent = false
+}: {
+  label: string;
+  value: React.ReactNode;
+  accent?: boolean;
+}): JSX.Element {
+  return (
+    <Card className={cn("border-neutral-200 bg-neutral-0 p-2", accent && "border-primary/20 bg-primary/5")}>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">{label}</p>
+      <div className="mt-1 text-2xl font-semibold leading-none text-neutral-950">{value}</div>
+    </Card>
+  );
+}
+
 export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }): JSX.Element {
+  const { t, locale } = useI18n();
   const queryClient = useQueryClient();
+  const [documentPreviewOpen, setDocumentPreviewOpen] = useState(false);
+  const [documentFormat, setDocumentFormat] = useState<"pdf" | "html" | "docx">("pdf");
+  const [documentPreviewHtml, setDocumentPreviewHtml] = useState("");
+  const [documentPreviewLoading, setDocumentPreviewLoading] = useState(false);
+  const [documentPreviewError, setDocumentPreviewError] = useState<string | null>(null);
+  const [documentLoading, setDocumentLoading] = useState<null | "pdf" | "html" | "docx">(null);
   const [lineModalOpen, setLineModalOpen] = useState(false);
   const [editLineModalOpen, setEditLineModalOpen] = useState(false);
   const [editingLine, setEditingLine] = useState<WorkOrderOrderLine | null>(null);
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
-  const [vehicleFilter, setVehicleFilter] = useState("");
-  const [employeeFilter, setEmployeeFilter] = useState("");
   const [lineDraft, setLineDraft] = useState({
     line_type: "labor" as "labor" | "part" | "misc",
     name: "",
@@ -102,7 +365,11 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
   });
   const [lineError, setLineError] = useState<string | null>(null);
   const [editLineError, setEditLineError] = useState<string | null>(null);
+  const [lineActionError, setLineActionError] = useState<string | null>(null);
+  const [statusActionError, setStatusActionError] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [timelineCommentDraft, setTimelineCommentDraft] = useState("");
+  const [timelineCommentError, setTimelineCommentError] = useState<string | null>(null);
 
   const workOrderQuery = useQuery({
     queryKey: mvpQueryKeys.workOrder(workOrderId),
@@ -124,20 +391,16 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
     queryFn: () => fetchWorkOrderTimeline(workOrderId, { limit: 100, offset: 0 })
   });
 
-  const vehiclesQuery = useQuery({
-    queryKey: mvpQueryKeys.vehicles("", "", 300, 0),
-    queryFn: () => fetchVehicles({ limit: 300, offset: 0 })
-  });
-
   const employeesQuery = useQuery({
-    queryKey: mvpQueryKeys.employees("", "", 200, 0),
-    queryFn: () => fetchEmployees({ limit: 200, offset: 0 })
+    queryKey: mvpQueryKeys.employees("", "", EMPLOYEE_LOOKUP_LIMIT, 0),
+    queryFn: () => fetchEmployees({ limit: EMPLOYEE_LOOKUP_LIMIT, offset: 0 })
   });
 
   const employeeById = useMemo(() => {
     const map = new Map<string, string>();
     (employeesQuery.data?.items ?? []).forEach((employee) => {
-      map.set(employee.employee_id, `${employee.email} (${employee.role})`);
+      const label = employee.full_name?.trim() ? `${employee.full_name} (${employee.role})` : `${employee.email} (${employee.role})`;
+      map.set(employee.employee_id, label);
     });
     return map;
   }, [employeesQuery.data?.items]);
@@ -166,18 +429,12 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
     }
   });
 
-  const attachVehicleMutation = useMutation({
-    mutationFn: (vehicleId: string) => attachWorkOrderVehicle(workOrderId, vehicleId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrder(workOrderId) });
-    }
-  });
-
   const assignMutation = useMutation({
     mutationFn: (employeeId: string | null) => assignWorkOrder(workOrderId, employeeId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrder(workOrderId) });
       void queryClient.invalidateQueries({ queryKey: ["work-orders"] });
+      void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrderTimeline(workOrderId, 100, 0) });
     }
   });
 
@@ -229,6 +486,15 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
     }
   });
 
+  const addTimelineCommentMutation = useMutation({
+    mutationFn: (comment: string) => addWorkOrderTimelineComment(workOrderId, comment),
+    onSuccess: () => {
+      setTimelineCommentDraft("");
+      setTimelineCommentError(null);
+      void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrderTimeline(workOrderId, 100, 0) });
+    }
+  });
+
   const openEditLineModal = (line: WorkOrderOrderLine): void => {
     setEditingLine(line);
     setEditLineDraft({
@@ -242,173 +508,339 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
     setEditLineModalOpen(true);
   };
 
-  const filteredVehicles = useMemo(() => {
-    const needle = vehicleFilter.trim().toLowerCase();
-    if (!needle) {
-      return vehiclesQuery.data?.items ?? [];
-    }
-    return (vehiclesQuery.data?.items ?? []).filter((vehicle) => {
-      return (
-        vehicle.plate_number.toLowerCase().includes(needle) ||
-        vehicle.make_model.toLowerCase().includes(needle) ||
-        (vehicle.vin ?? "").toLowerCase().includes(needle)
-      );
-    });
-  }, [vehicleFilter, vehiclesQuery.data?.items]);
-
-  const filteredEmployees = useMemo(() => {
-    const needle = employeeFilter.trim().toLowerCase();
-    if (!needle) {
-      return employeesQuery.data?.items ?? [];
-    }
-    return (employeesQuery.data?.items ?? []).filter((employee) => {
-      return employee.email.toLowerCase().includes(needle) || employee.role.toLowerCase().includes(needle);
-    });
-  }, [employeeFilter, employeesQuery.data?.items]);
+  const employeeOptions = useMemo(
+    () => [
+      { value: "__unassigned", label: t("work_orders.unassigned"), keywords: [t("work_orders.unassigned")] },
+      ...(employeesQuery.data?.items ?? []).map((employee) => ({
+        value: employee.employee_id,
+        label: employee.full_name?.trim() ? `${employee.full_name} (${employee.role})` : `${employee.email} (${employee.role})`,
+        keywords: [employee.full_name ?? "", employee.email, employee.role]
+      }))
+    ],
+    [employeesQuery.data?.items, t]
+  );
 
   const currentAssigneeLabel =
     workOrderQuery.data?.assigned_employee_id && employeeById.get(workOrderQuery.data.assigned_employee_id)
       ? employeeById.get(workOrderQuery.data.assigned_employee_id)
       : workOrderQuery.data?.assigned_employee_id
         ? workOrderQuery.data.assigned_employee_id
-        : "Unassigned";
+        : t("work_orders.unassigned");
+
+  const availableStatusTransitions = useMemo((): WorkOrderStatus[] => {
+    const current = workOrderQuery.data?.status;
+    if (!current) {
+      return [];
+    }
+    if (current === "new") {
+      return ["in_progress", "cancelled"];
+    }
+    if (current === "in_progress") {
+      return ["completed_unpaid", "completed_paid", "cancelled"];
+    }
+    if (current === "completed_unpaid") {
+      return ["completed_paid", "cancelled"];
+    }
+    if (current === "completed_paid") {
+      return ["cancelled"];
+    }
+    return [];
+  }, [workOrderQuery.data?.status]);
+
+  const areLinesEditable = useMemo(() => {
+    const status = workOrderQuery.data?.status;
+    return status !== "completed_unpaid" && status !== "completed_paid" && status !== "cancelled";
+  }, [workOrderQuery.data?.status]);
+
+  const remainingAmountValue = useMemo(() => Number(workOrderQuery.data?.remaining_amount ?? "0"), [workOrderQuery.data?.remaining_amount]);
+  const paidAmountValue = useMemo(() => Number(workOrderQuery.data?.paid_amount ?? "0"), [workOrderQuery.data?.paid_amount]);
+  const canSetCompletedPaid = remainingAmountValue <= 0;
+  const canSetCompletedUnpaid = remainingAmountValue > 0;
+  const canCancelOrder = paidAmountValue <= 0;
+  const canAddPayment = workOrderQuery.data?.status !== "cancelled";
+
+  const runStatusTransition = async (status: WorkOrderStatus): Promise<void> => {
+    setStatusActionError(null);
+    try {
+      await statusMutation.mutateAsync(status);
+    } catch (error) {
+      setStatusActionError(resolveWorkOrderActionError(error, t));
+    }
+  };
+
+  const runCloseOrder = async (): Promise<void> => {
+    setStatusActionError(null);
+    try {
+      await closeMutation.mutateAsync();
+    } catch (error) {
+      setStatusActionError(resolveWorkOrderActionError(error, t));
+    }
+  };
+
+  const submitTimelineComment = async (): Promise<void> => {
+    const comment = timelineCommentDraft.trim();
+    if (!comment) {
+      setTimelineCommentError(t("work_order_detail.error.comment_required"));
+      return;
+    }
+    setTimelineCommentError(null);
+    try {
+      await addTimelineCommentMutation.mutateAsync(comment);
+    } catch (error) {
+      setTimelineCommentError(resolveWorkOrderActionError(error, t));
+    }
+  };
+
+  const downloadDocument = async (format: "pdf" | "html" | "docx"): Promise<void> => {
+    try {
+      setDocumentPreviewError(null);
+      setDocumentLoading(format);
+      const response = await fetch(`/api/workspace/work-orders/${workOrderId}/document?format=${format}`, {
+        method: "GET",
+        credentials: "include"
+      });
+      if (!response.ok) {
+        throw new Error(`${t("work_order_detail.document_error")} (${response.status})`);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const contentDisposition = response.headers.get("content-disposition") ?? "";
+      const fallback = `work-order-${workOrderId}.${format}`;
+      const match = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
+      const filename = match?.[1] ?? fallback;
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setDocumentPreviewError(error instanceof Error ? error.message : t("work_order_detail.document_error"));
+    } finally {
+      setDocumentLoading(null);
+    }
+  };
+
+  const loadDocumentPreview = async (): Promise<void> => {
+    try {
+      setDocumentPreviewError(null);
+      setDocumentPreviewLoading(true);
+      const response = await fetch(`/api/workspace/work-orders/${workOrderId}/document?format=html`, {
+        method: "GET",
+        credentials: "include"
+      });
+      if (!response.ok) {
+        throw new Error(`${t("work_order_detail.document_preview_error")} (${response.status})`);
+      }
+      const html = await response.text();
+      setDocumentPreviewHtml(html);
+    } catch (error) {
+      setDocumentPreviewHtml("");
+      setDocumentPreviewError(error instanceof Error ? error.message : t("work_order_detail.document_preview_error"));
+    } finally {
+      setDocumentPreviewLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!documentPreviewOpen) {
+      return;
+    }
+    void loadDocumentPreview();
+  }, [documentPreviewOpen]);
 
   return (
-    <PageLayout title="Work-order detail" subtitle={workOrderId}>
+    <PageLayout title={t("work_order_detail.title")}>
       <StateBoundary loading={workOrderQuery.isLoading} error={workOrderQuery.error?.message}>
         {workOrderQuery.data ? (
           <>
             <Section
+              className="space-y-2"
               title={workOrderQuery.data.description}
-              description={`Created ${new Date(workOrderQuery.data.created_at).toLocaleString()}`}
+              description={`${t("work_orders.created")} ${new Date(workOrderQuery.data.created_at).toLocaleString()}`}
               actions={
-                <div className="flex items-center gap-1">
-                  <Badge tone={statusTone(workOrderQuery.data.status)}>{statusLabel(workOrderQuery.data.status)}</Badge>
+                <div className="flex items-center gap-1.5">
                   <Link href={ROUTES.workOrders}>
-                    <Button variant="secondary">Back</Button>
+                    <Button variant="secondary" size="sm">
+                      {t("common.back")}
+                    </Button>
                   </Link>
+                  <Button variant="secondary" size="sm" onClick={() => void downloadDocument("pdf")} loading={documentLoading === "pdf"}>
+                    PDF
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setDocumentPreviewOpen(true)}>
+                    {t("common.actions")}
+                  </Button>
                 </div>
               }
             >
-              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                <Card className="border-neutral-200 p-2">
-                  <p className="text-xs text-neutral-600">Total amount</p>
-                  <p className="text-lg font-semibold text-neutral-900">{formatMoney(workOrderQuery.data.total_amount)}</p>
-                </Card>
-                <Card className="border-neutral-200 p-2">
-                  <p className="text-xs text-neutral-600">Remaining amount</p>
-                  <p className="text-lg font-semibold text-neutral-900">{formatMoney(workOrderQuery.data.remaining_amount)}</p>
-                </Card>
-                <Card className="border-neutral-200 p-2">
-                  <p className="text-xs text-neutral-600">Paid amount</p>
-                  <p className="text-lg font-semibold text-neutral-900">{formatMoney(workOrderQuery.data.paid_amount)}</p>
-                </Card>
-                <Card className="border-neutral-200 p-2">
-                  <p className="text-xs text-neutral-600">Vehicle</p>
-                  <p className="text-sm text-neutral-900">
-                    {attachedVehicleQuery.data
-                      ? `${attachedVehicleQuery.data.plate_number} - ${attachedVehicleQuery.data.make_model}`
-                      : workOrderQuery.data.vehicle_id ?? "-"}
-                  </p>
-                </Card>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Badge tone={statusTone(workOrderQuery.data.status)}>{statusLabel(workOrderQuery.data.status, t)}</Badge>
               </div>
+              <p className="text-xs text-neutral-500">ID: #{workOrderQuery.data.id.slice(0, 8)}</p>
 
-              <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                <Card className="border-neutral-200 p-2">
-                  <p className="text-xs text-neutral-600">Current assignee</p>
-                  <p className="text-sm text-neutral-900">{currentAssigneeLabel}</p>
-                </Card>
-                <Card className="border-neutral-200 p-2">
-                  <p className="text-xs text-neutral-600">Status controls</p>
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    <Button variant="secondary" size="sm" onClick={() => statusMutation.mutate("in_progress")} disabled={statusMutation.isPending}>
-                      Set in progress
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => statusMutation.mutate("completed_unpaid")}
-                      disabled={statusMutation.isPending}
-                    >
-                      Set completed (unpaid)
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => statusMutation.mutate("completed_paid")}
-                      disabled={statusMutation.isPending}
-                    >
-                      Set completed (paid)
-                    </Button>
-                    <Button variant="destructive" size="sm" onClick={() => statusMutation.mutate("cancelled")} disabled={statusMutation.isPending}>
-                      Cancel
-                    </Button>
-                    <Button size="sm" onClick={() => closeMutation.mutate()} loading={closeMutation.isPending}>
-                      Close work order
-                    </Button>
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
+                <DetailMetric label={t("work_orders.kpi.total")} value={formatMoney(workOrderQuery.data.total_amount)} accent />
+                <DetailMetric label={t("work_orders.kpi.paid")} value={formatMoney(workOrderQuery.data.paid_amount)} />
+                <DetailMetric label={t("work_orders.kpi.remaining")} value={formatMoney(workOrderQuery.data.remaining_amount)} />
+                <Card className="border-neutral-200 bg-neutral-0 p-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">{t("work_order_detail.payment_state")}</p>
+                  <div className="mt-1.5">
+                    <Badge tone={paymentStateTone(workOrderQuery.data.payment_state)}>{paymentStateLabel(workOrderQuery.data.payment_state, t)}</Badge>
                   </div>
                 </Card>
               </div>
 
-              <div className="mt-2 flex flex-wrap gap-1">
-                <Input
-                  placeholder="Find vehicle"
-                  value={vehicleFilter}
-                  onChange={(event) => setVehicleFilter(event.target.value)}
-                />
-                <select
-                  className="h-5 rounded-sm border border-neutral-300 bg-neutral-0 px-2 text-sm text-neutral-900"
-                  defaultValue={workOrderQuery.data.vehicle_id ?? ""}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    if (!value) {
-                      return;
-                    }
-                    attachVehicleMutation.mutate(value);
-                  }}
-                >
-                  <option value="">Attach vehicle</option>
-                  {filteredVehicles.map((vehicle) => (
-                    <option key={vehicle.id} value={vehicle.id}>
-                      {vehicle.plate_number} - {vehicle.make_model}
-                    </option>
-                  ))}
-                </select>
+              <p className="text-xs font-semibold uppercase tracking-wide text-neutral-600">{t("work_order_detail.main_info_title")}</p>
 
-                <Input
-                  placeholder="Find employee"
-                  value={employeeFilter}
-                  onChange={(event) => setEmployeeFilter(event.target.value)}
-                />
-                <select
-                  className="h-5 rounded-sm border border-neutral-300 bg-neutral-0 px-2 text-sm text-neutral-900"
-                  defaultValue={workOrderQuery.data.assigned_employee_id ?? ""}
-                  onChange={(event) => {
-                    const value = event.target.value || null;
-                    assignMutation.mutate(value);
-                  }}
-                >
-                  <option value="">Assign employee</option>
-                  {filteredEmployees.map((employee) => (
-                    <option key={employee.employee_id} value={employee.employee_id}>
-                      {employee.email} ({employee.role})
-                    </option>
-                  ))}
-                </select>
+              <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
+                <Card className="space-y-2 border-neutral-200 p-2">
+                  <div className="space-y-1 rounded-md border border-neutral-100 bg-neutral-50/60 p-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">{t("common.client")}</p>
+                    <p className="text-sm font-semibold text-neutral-900">{workOrderQuery.data.client_name ?? t("common.not_set")}</p>
+                  </div>
+
+                  <div className="space-y-1 rounded-md border border-neutral-100 bg-neutral-50/60 p-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">{t("common.vehicle")}</p>
+                    <p className="text-sm font-medium text-neutral-900">
+                      {attachedVehicleQuery.data
+                        ? `${attachedVehicleQuery.data.plate_number} - ${attachedVehicleQuery.data.make_model}`
+                        : workOrderQuery.data.vehicle_make_model ?? t("common.not_set")}
+                    </p>
+                  </div>
+
+                  <div className="space-y-1 rounded-md border border-neutral-100 bg-neutral-50/60 p-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">{t("work_order_detail.current_assignee")}</p>
+                    <p className="text-sm font-medium text-neutral-900">{currentAssigneeLabel}</p>
+                    <div className="pt-1">
+                      <Combobox
+                        id="assign-employee"
+                        value={workOrderQuery.data.assigned_employee_id ?? "__unassigned"}
+                        onChange={(value) => {
+                          assignMutation.mutate(value === "__unassigned" ? null : value);
+                        }}
+                        options={employeeOptions}
+                        placeholder={t("work_order_detail.assign_employee")}
+                        searchPlaceholder={t("work_order_detail.find_employee")}
+                        emptyText={t("datatable.empty.title")}
+                      />
+                    </div>
+                    {employeesQuery.error ? <p className="text-xs text-error">{t("work_order_detail.error.employees_load")}</p> : null}
+                    {!employeesQuery.isLoading && !employeesQuery.error && (employeesQuery.data?.items.length ?? 0) === 0 ? (
+                      <p className="text-xs text-neutral-600">{t("work_order_detail.no_employees_available")}</p>
+                    ) : null}
+                  </div>
+                </Card>
+
+                <Card className="space-y-2 border-neutral-200 p-2">
+                  <div className="space-y-1 rounded-md border border-neutral-100 bg-neutral-50/60 p-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">{t("common.status")}</p>
+                    <div className="flex items-center gap-1.5">
+                      <Badge tone={statusTone(workOrderQuery.data.status)}>{statusLabel(workOrderQuery.data.status, t)}</Badge>
+                      <span className="text-xs text-neutral-600">{paymentStateLabel(workOrderQuery.data.payment_state, t)}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1 rounded-md border border-neutral-100 bg-neutral-50/60 p-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">{t("work_order_detail.status_controls")}</p>
+                    <div className="flex flex-wrap gap-1">
+                      {availableStatusTransitions.includes("in_progress") ? (
+                        <Button variant="secondary" size="sm" onClick={() => void runStatusTransition("in_progress")} disabled={statusMutation.isPending}>
+                          {t("work_order_detail.set_in_progress")}
+                        </Button>
+                      ) : null}
+                      {availableStatusTransitions.includes("completed_unpaid") ? (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => void runStatusTransition("completed_unpaid")}
+                          disabled={statusMutation.isPending || !canSetCompletedUnpaid}
+                        >
+                          {t("work_order_detail.set_completed_unpaid")}
+                        </Button>
+                      ) : null}
+                      {availableStatusTransitions.includes("completed_paid") ? (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => void runStatusTransition("completed_paid")}
+                          disabled={statusMutation.isPending || !canSetCompletedPaid}
+                        >
+                          {t("work_order_detail.set_completed_paid")}
+                        </Button>
+                      ) : null}
+                      {availableStatusTransitions.includes("cancelled") ? (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => void runStatusTransition("cancelled")}
+                          disabled={statusMutation.isPending || !canCancelOrder}
+                        >
+                          {t("common.cancel")}
+                        </Button>
+                      ) : null}
+                      {workOrderQuery.data.status !== "cancelled" ? (
+                        <Button size="sm" onClick={() => void runCloseOrder()} loading={closeMutation.isPending}>
+                          {t("work_order_detail.close_order")}
+                        </Button>
+                      ) : null}
+                    </div>
+                    {!canSetCompletedPaid && availableStatusTransitions.includes("completed_paid") ? (
+                      <p className="text-xs text-neutral-600">{t("work_order_detail.error.cannot_mark_completed_paid")}</p>
+                    ) : null}
+                    {!canCancelOrder && availableStatusTransitions.includes("cancelled") ? (
+                      <p className="text-xs text-neutral-600">{t("work_order_detail.error.cannot_cancel_paid_order")}</p>
+                    ) : null}
+                    {statusActionError ? <p className="text-xs text-error">{statusActionError}</p> : null}
+                    {availableStatusTransitions.length === 0 && workOrderQuery.data.status === "cancelled" ? (
+                      <p className="text-xs text-neutral-600">{t("work_order_detail.status_final")}</p>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-1 rounded-md border border-neutral-100 bg-neutral-50/60 p-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">{t("work_order_detail.payments.title")}</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="space-y-0.5">
+                        <p className="text-xs text-neutral-600">
+                          {t("work_orders.kpi.paid")}: <span className="font-semibold text-neutral-900">{formatMoney(workOrderQuery.data.paid_amount)}</span>
+                        </p>
+                        <p className="text-xs text-neutral-600">
+                          {t("work_orders.kpi.remaining")}: <span className="font-semibold text-neutral-900">{formatMoney(workOrderQuery.data.remaining_amount)}</span>
+                        </p>
+                      </div>
+                      <Button variant="secondary" size="sm" onClick={() => setPaymentModalOpen(true)} disabled={!canAddPayment}>
+                        {t("work_order_detail.payments.add")}
+                      </Button>
+                    </div>
+                    {!canAddPayment ? <p className="text-xs text-neutral-600">{t("work_order_detail.error.payment_not_allowed_for_cancelled")}</p> : null}
+                  </div>
+                </Card>
               </div>
             </Section>
 
             <Section
-              title="Order lines"
-              description="Line items update total amount and remaining amount"
+              title={t("work_order_detail.lines.title")}
+              description={t("work_order_detail.lines.description")}
               actions={
-                <Button onClick={() => setLineModalOpen(true)} variant="secondary">
-                  Add line
+                <Button
+                  onClick={() => {
+                    if (!areLinesEditable) {
+                      return;
+                    }
+                    setLineModalOpen(true);
+                  }}
+                  variant="secondary"
+                  disabled={!areLinesEditable}
+                >
+                  {t("work_order_detail.lines.add")}
                 </Button>
               }
             >
+              {!areLinesEditable ? <p className="text-xs text-neutral-600">{t("work_order_detail.error.lines_locked")}</p> : null}
+              {lineActionError ? <p className="text-sm text-error">{lineActionError}</p> : null}
               {linesQuery.isLoading ? (
-                <p className="text-sm text-neutral-600">Loading lines...</p>
+                <p className="text-sm text-neutral-600">{t("work_order_detail.loading_lines")}</p>
               ) : linesQuery.error ? (
                 <p className="text-sm text-error">{linesQuery.error.message}</p>
               ) : linesQuery.data?.length ? (
@@ -418,18 +850,37 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                       <div className="flex flex-wrap items-start justify-between gap-1">
                         <div>
                           <p className="text-sm font-medium text-neutral-900">
-                            {line.name} ({line.line_type})
+                            {line.name} ({t(`work_order_detail.line_type.${line.line_type}`)})
                           </p>
                           <p className="text-xs text-neutral-600">
-                            Qty {line.quantity} x {formatMoney(line.unit_price)} = {formatMoney(line.line_total)}
+                            {t("work_order_detail.qty_formula", {
+                              quantity: line.quantity,
+                              unit_price: formatMoney(line.unit_price),
+                              total: formatMoney(line.line_total)
+                            })}
                           </p>
                         </div>
                         <div className="flex items-center gap-1">
-                          <Button variant="secondary" size="sm" onClick={() => openEditLineModal(line)}>
-                            Edit
+                          <Button variant="secondary" size="sm" onClick={() => openEditLineModal(line)} disabled={!areLinesEditable}>
+                            {t("common.edit")}
                           </Button>
-                          <Button variant="destructive" size="sm" onClick={() => deleteLineMutation.mutate(line.id)}>
-                            Remove
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={!areLinesEditable || deleteLineMutation.isPending}
+                            onClick={async () => {
+                              if (!areLinesEditable) {
+                                return;
+                              }
+                              setLineActionError(null);
+                              try {
+                                await deleteLineMutation.mutateAsync(line.id);
+                              } catch (error) {
+                                setLineActionError(resolveWorkOrderActionError(error, t));
+                              }
+                            }}
+                          >
+                            {t("common.remove")}
                           </Button>
                         </div>
                       </div>
@@ -437,21 +888,22 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-neutral-600">No lines yet.</p>
+                <p className="text-sm text-neutral-600">{t("work_order_detail.no_lines")}</p>
               )}
             </Section>
 
             <Section
-              title="Payments"
-              description="Payments are independent from work-order closure"
+              title={t("work_order_detail.payments.title")}
+              description={t("work_order_detail.payments.description")}
               actions={
-                <Button onClick={() => setPaymentModalOpen(true)} variant="secondary">
-                  Add payment
+                <Button onClick={() => setPaymentModalOpen(true)} variant="secondary" disabled={!canAddPayment}>
+                  {t("work_order_detail.payments.add")}
                 </Button>
               }
             >
+              {!canAddPayment ? <p className="text-xs text-neutral-600">{t("work_order_detail.error.payment_not_allowed_for_cancelled")}</p> : null}
               {paymentsQuery.isLoading ? (
-                <p className="text-sm text-neutral-600">Loading payments...</p>
+                <p className="text-sm text-neutral-600">{t("work_order_detail.loading_payments")}</p>
               ) : paymentsQuery.error ? (
                 <p className="text-sm text-error">{paymentsQuery.error.message}</p>
               ) : paymentsQuery.data?.length ? (
@@ -462,112 +914,254 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                         <div>
                           <p className="text-sm font-medium text-neutral-900">{formatMoney(payment.amount)}</p>
                           <p className="text-xs text-neutral-600">
-                            {payment.method} - {new Date(payment.paid_at).toLocaleString()}
+                            {t(`work_order_detail.payment_method.${payment.method}`)} - {new Date(payment.paid_at).toLocaleString()}
                           </p>
                           {payment.comment ? <p className="text-xs text-neutral-600">{payment.comment}</p> : null}
                         </div>
-                        <Badge tone="neutral">Payment</Badge>
+                        <Badge tone="neutral">{t("work_order_detail.payment")}</Badge>
                       </div>
                     </Card>
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-neutral-600">No payments yet.</p>
+                <p className="text-sm text-neutral-600">{t("work_order_detail.no_payments")}</p>
               )}
             </Section>
 
-            <Section title="Activity timeline" description="Readable history of key work-order changes.">
+            <Section title={t("work_order_detail.timeline.title")} description={t("work_order_detail.timeline.description")}>
               {timelineQuery.isLoading ? (
-                <p className="text-sm text-neutral-600">Loading activity...</p>
+                <p className="text-sm text-neutral-600">{t("work_order_detail.loading_activity")}</p>
               ) : timelineQuery.error ? (
                 <p className="text-sm text-error">{timelineQuery.error.message}</p>
               ) : timelineQuery.data?.length ? (
-                <div className="space-y-1">
-                  {timelineQuery.data.map((item) => (
-                    <Card key={item.id} className="border-neutral-200 p-2">
-                      <div className="flex flex-wrap items-start justify-between gap-1">
-                        <p className="text-sm text-neutral-900">{item.message}</p>
-                        <p className="text-xs text-neutral-500">{new Date(item.created_at).toLocaleString()}</p>
+                <div className="relative pl-6">
+                  <div className="absolute bottom-1 left-[11px] top-1 w-px bg-neutral-200" aria-hidden />
+                  {timelineQuery.data.map((item, index) => {
+                    const presentation = timelinePresentation(item, t);
+                    const styles = timelineKindStyles(presentation.kind);
+                    const actor =
+                      item.actor_email?.split("@")[0] ??
+                      item.actor_email ??
+                      t("work_order_detail.timeline.system");
+                    const role =
+                      item.actor_role && ["owner", "admin", "manager", "employee"].includes(item.actor_role)
+                        ? t(`employees.role.${item.actor_role}`)
+                        : item.actor_role ?? null;
+                    const metaParts = [actor, role, new Date(item.created_at).toLocaleString()].filter(Boolean);
+
+                    return (
+                      <div key={item.id} className={cn("relative pb-2.5", index === timelineQuery.data.length - 1 && "pb-0")}>
+                        <span
+                          className={cn(
+                            "absolute left-0 top-1.5 h-[10px] w-[10px] rounded-full ring-4 ring-neutral-0",
+                            styles.dotClass
+                          )}
+                          aria-hidden
+                        />
+
+                        <div className="ml-4 rounded-md border border-neutral-100 bg-neutral-50/70 px-3 py-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide", styles.chipClass)}>
+                                  {presentation.typeLabel}
+                                </span>
+                                <p className="text-sm font-semibold text-neutral-900">{presentation.title}</p>
+                              </div>
+
+                              {presentation.statusFrom && presentation.statusTo ? (
+                                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                  <Badge tone={statusTone(presentation.statusFrom)}>{statusLabel(presentation.statusFrom, t)}</Badge>
+                                  <span className="text-xs text-neutral-500">{"->"}</span>
+                                  <Badge tone={statusTone(presentation.statusTo)}>{statusLabel(presentation.statusTo, t)}</Badge>
+                                </div>
+                              ) : presentation.details ? (
+                                <p className="mt-1 text-xs font-medium text-neutral-700">{presentation.details}</p>
+                              ) : null}
+
+                              <p className="mt-1 text-xs text-neutral-600">{metaParts.join(" | ")}</p>
+                            </div>
+
+                            <p className="shrink-0 text-[11px] text-neutral-500">{formatRelativeTime(item.created_at, locale)}</p>
+                          </div>
+                        </div>
                       </div>
-                    </Card>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
-                <p className="text-sm text-neutral-600">No activity yet.</p>
+                <p className="text-sm text-neutral-600">{t("work_order_detail.no_activity")}</p>
               )}
+
+              <Card className="border-neutral-200 bg-neutral-50/70 p-2">
+                <FormField id="timeline-comment" label={t("work_order_detail.comments.add_label")}>
+                  <div className="space-y-2">
+                    <Textarea
+                      id="timeline-comment"
+                      className="min-h-20"
+                      value={timelineCommentDraft}
+                      placeholder={t("work_order_detail.comments.placeholder")}
+                      onChange={(event) => {
+                        setTimelineCommentDraft(event.target.value);
+                        if (timelineCommentError) {
+                          setTimelineCommentError(null);
+                        }
+                      }}
+                    />
+                    <div className="flex items-center justify-end">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => void submitTimelineComment()}
+                        loading={addTimelineCommentMutation.isPending}
+                      >
+                        {t("work_order_detail.comments.add_action")}
+                      </Button>
+                    </div>
+                    {timelineCommentError ? <p className="text-sm text-error">{timelineCommentError}</p> : null}
+                  </div>
+                </FormField>
+              </Card>
             </Section>
+
           </>
         ) : null}
       </StateBoundary>
 
       <Modal
-        open={lineModalOpen}
-        onOpenChange={(open) => {
-          setLineModalOpen(open);
-          if (!open) {
-            setLineError(null);
-          }
-        }}
-        title="Add order line"
-        description="Line items update totals"
+        open={documentPreviewOpen}
+        onOpenChange={setDocumentPreviewOpen}
+        title={t("work_order_detail.document_modal_title")}
+        description={t("work_order_detail.document_modal_description")}
+        size="lg"
         footer={
           <FormActions>
-            <Button variant="secondary" onClick={() => setLineModalOpen(false)}>
-              Cancel
+            <Button variant="secondary" onClick={() => setDocumentPreviewOpen(false)}>
+              {t("common.cancel")}
             </Button>
-            <Button
-              onClick={async () => {
-                const quantity = Number(lineDraft.quantity);
-                const unitPrice = Number(lineDraft.unit_price);
-                if (!lineDraft.name.trim() || !Number.isFinite(quantity) || !Number.isFinite(unitPrice) || unitPrice <= 0 || quantity <= 0) {
-                  setLineError("Line name, quantity and unit price are required.");
-                  return;
-                }
-                setLineError(null);
-                await addLineMutation.mutateAsync({
-                  line_type: lineDraft.line_type,
-                  name: lineDraft.name.trim(),
-                  quantity,
-                  unit_price: unitPrice,
-                  comment: lineDraft.comment.trim() || null
-                });
-                setLineModalOpen(false);
-                setLineDraft({ line_type: "labor", name: "", quantity: "1", unit_price: "", comment: "" });
-              }}
-              loading={addLineMutation.isPending}
-            >
-              Add
+            <Button variant="secondary" onClick={() => void loadDocumentPreview()} loading={documentPreviewLoading}>
+              {t("work_order_detail.document_refresh_preview")}
+            </Button>
+            <Button onClick={() => void downloadDocument(documentFormat)} loading={documentLoading === documentFormat}>
+              {t("work_order_detail.document_download_selected")}
             </Button>
           </FormActions>
         }
       >
         <div className="space-y-2">
-          <FormField id="line-type" label="Type">
-            <select
+          <FormField id="document-format" label={t("work_order_detail.document_format_label")}>
+            <Select id="document-format" value={documentFormat} onChange={(event) => setDocumentFormat(event.target.value as "pdf" | "html" | "docx")}>
+              <option value="pdf">PDF</option>
+              <option value="docx">Word (DOCX)</option>
+              <option value="html">HTML</option>
+            </Select>
+          </FormField>
+          <p className="text-xs text-neutral-600">{t("work_order_detail.document_preview_note")}</p>
+
+          <div className="rounded-md border border-neutral-200 p-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">{t("work_order_detail.document_preview_title")}</p>
+            <div className="mt-2 h-[420px] overflow-hidden rounded-md border border-neutral-200 bg-neutral-50">
+              {documentPreviewLoading ? (
+                <div className="flex h-full items-center justify-center px-3 text-sm text-neutral-600">
+                  {t("work_order_detail.document_preview_loading")}
+                </div>
+              ) : documentPreviewError ? (
+                <div className="flex h-full items-center justify-center px-3 text-sm text-error">{documentPreviewError}</div>
+              ) : documentPreviewHtml ? (
+                <iframe
+                  title={t("work_order_detail.document_preview_title")}
+                  className="h-full w-full bg-neutral-0"
+                  srcDoc={documentPreviewHtml}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center px-3 text-sm text-neutral-600">
+                  {t("work_order_detail.document_preview_empty")}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={lineModalOpen}
+        onOpenChange={(open) => {
+          if (open && !areLinesEditable) {
+            setLineError(t("work_order_detail.error.lines_locked"));
+            return;
+          }
+          setLineModalOpen(open);
+          if (!open) {
+            setLineError(null);
+          }
+        }}
+        title={t("work_order_detail.lines.add")}
+        description={t("work_order_detail.lines.description")}
+        footer={
+          <FormActions>
+            <Button variant="secondary" onClick={() => setLineModalOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              onClick={async () => {
+                const quantity = Number(lineDraft.quantity);
+                const unitPrice = Number(lineDraft.unit_price);
+                if (!areLinesEditable) {
+                  setLineError(t("work_order_detail.error.lines_locked"));
+                  return;
+                }
+                if (!lineDraft.name.trim() || !Number.isFinite(quantity) || !Number.isFinite(unitPrice) || unitPrice <= 0 || quantity <= 0) {
+                  setLineError(t("work_order_detail.error.line_required"));
+                  return;
+                }
+                setLineError(null);
+                try {
+                  await addLineMutation.mutateAsync({
+                    line_type: lineDraft.line_type,
+                    name: lineDraft.name.trim(),
+                    quantity,
+                    unit_price: unitPrice,
+                    comment: lineDraft.comment.trim() || null
+                  });
+                  setLineModalOpen(false);
+                  setLineDraft({ line_type: "labor", name: "", quantity: "1", unit_price: "", comment: "" });
+                } catch (error) {
+                  setLineError(resolveWorkOrderActionError(error, t));
+                }
+              }}
+              loading={addLineMutation.isPending}
+            >
+              {t("work_order_detail.lines.add")}
+            </Button>
+          </FormActions>
+        }
+      >
+        <div className="space-y-2">
+          <FormField id="line-type" label={t("common.type")}>
+            <Select
               id="line-type"
-              className="h-5 w-full rounded-sm border border-neutral-300 bg-neutral-0 px-2 text-sm text-neutral-900"
               value={lineDraft.line_type}
               onChange={(event) => setLineDraft((prev) => ({ ...prev, line_type: event.target.value as "labor" | "part" | "misc" }))}
             >
-              <option value="labor">labor</option>
-              <option value="part">part</option>
-              <option value="misc">misc</option>
-            </select>
+              <option value="labor">{t("work_order_detail.line_type.labor")}</option>
+              <option value="part">{t("work_order_detail.line_type.part")}</option>
+              <option value="misc">{t("work_order_detail.line_type.misc")}</option>
+            </Select>
           </FormField>
-          <FormField id="line-name" label="Name" required>
+          <FormField id="line-name" label={t("common.name")} required>
             <Input id="line-name" value={lineDraft.name} onChange={(event) => setLineDraft((prev) => ({ ...prev, name: event.target.value }))} />
           </FormField>
-          <FormField id="line-qty" label="Quantity" required>
+          <FormField id="line-qty" label={t("common.quantity")} required>
             <Input id="line-qty" value={lineDraft.quantity} onChange={(event) => setLineDraft((prev) => ({ ...prev, quantity: event.target.value }))} />
           </FormField>
-          <FormField id="line-unit-price" label="Unit price" required>
+          <FormField id="line-unit-price" label={t("common.unit_price")} required>
             <Input
               id="line-unit-price"
               value={lineDraft.unit_price}
               onChange={(event) => setLineDraft((prev) => ({ ...prev, unit_price: event.target.value }))}
             />
           </FormField>
-          <FormField id="line-comment" label="Comment">
+          <FormField id="line-comment" label={t("common.comment")}>
             <Textarea
               id="line-comment"
               value={lineDraft.comment}
@@ -581,86 +1175,97 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
       <Modal
         open={editLineModalOpen}
         onOpenChange={(open) => {
+          if (open && !areLinesEditable) {
+            setEditLineError(t("work_order_detail.error.lines_locked"));
+            return;
+          }
           setEditLineModalOpen(open);
           if (!open) {
             setEditingLine(null);
             setEditLineError(null);
           }
         }}
-        title="Edit order line"
-        description={editingLine ? `Line ${editingLine.name}` : "Edit line fields"}
+        title={t("work_order_detail.lines.edit")}
+        description={editingLine ? `${t("common.line")} ${editingLine.name}` : t("work_order_detail.lines.edit_description")}
         footer={
           <FormActions>
             <Button variant="secondary" onClick={() => setEditLineModalOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={async () => {
                 if (!editingLine) {
                   return;
                 }
+                if (!areLinesEditable) {
+                  setEditLineError(t("work_order_detail.error.lines_locked"));
+                  return;
+                }
                 const quantity = Number(editLineDraft.quantity);
                 const unitPrice = Number(editLineDraft.unit_price);
                 if (!editLineDraft.name.trim() || !Number.isFinite(quantity) || !Number.isFinite(unitPrice) || unitPrice <= 0 || quantity <= 0) {
-                  setEditLineError("Line name, quantity and unit price are required.");
+                  setEditLineError(t("work_order_detail.error.line_required"));
                   return;
                 }
                 setEditLineError(null);
-                await updateLineMutation.mutateAsync({
-                  lineId: editingLine.id,
-                  payload: {
-                    line_type: editLineDraft.line_type,
-                    name: editLineDraft.name.trim(),
-                    quantity,
-                    unit_price: unitPrice,
-                    comment: editLineDraft.comment.trim() || null
-                  }
-                });
-                setEditLineModalOpen(false);
-                setEditingLine(null);
+                try {
+                  await updateLineMutation.mutateAsync({
+                    lineId: editingLine.id,
+                    payload: {
+                      line_type: editLineDraft.line_type,
+                      name: editLineDraft.name.trim(),
+                      quantity,
+                      unit_price: unitPrice,
+                      comment: editLineDraft.comment.trim() || null
+                    }
+                  });
+                  setEditLineModalOpen(false);
+                  setEditingLine(null);
+                } catch (error) {
+                  setEditLineError(resolveWorkOrderActionError(error, t));
+                }
               }}
               loading={updateLineMutation.isPending}
             >
-              Save
+              {t("common.save")}
             </Button>
           </FormActions>
         }
       >
         <div className="space-y-2">
-          <FormField id="edit-line-type" label="Type">
-            <select
+          <FormField id="edit-line-type" label={t("common.type")}>
+            <Select
               id="edit-line-type"
-              className="h-5 w-full rounded-sm border border-neutral-300 bg-neutral-0 px-2 text-sm text-neutral-900"
               value={editLineDraft.line_type}
               onChange={(event) => setEditLineDraft((prev) => ({ ...prev, line_type: event.target.value as "labor" | "part" | "misc" }))}
             >
-              <option value="labor">labor</option>
-              <option value="part">part</option>
-              <option value="misc">misc</option>
-            </select>
+              <option value="labor">{t("work_order_detail.line_type.labor")}</option>
+              <option value="part">{t("work_order_detail.line_type.part")}</option>
+              <option value="misc">{t("work_order_detail.line_type.misc")}</option>
+            </Select>
           </FormField>
-          <FormField id="edit-line-name" label="Name" required>
+          <FormField id="edit-line-name" label={t("common.name")} required>
             <Input
               id="edit-line-name"
               value={editLineDraft.name}
               onChange={(event) => setEditLineDraft((prev) => ({ ...prev, name: event.target.value }))}
             />
           </FormField>
-          <FormField id="edit-line-qty" label="Quantity" required>
+          <FormField id="edit-line-qty" label={t("common.quantity")} required>
             <Input
               id="edit-line-qty"
               value={editLineDraft.quantity}
               onChange={(event) => setEditLineDraft((prev) => ({ ...prev, quantity: event.target.value }))}
             />
           </FormField>
-          <FormField id="edit-line-unit-price" label="Unit price" required>
+          <FormField id="edit-line-unit-price" label={t("common.unit_price")} required>
             <Input
               id="edit-line-unit-price"
               value={editLineDraft.unit_price}
               onChange={(event) => setEditLineDraft((prev) => ({ ...prev, unit_price: event.target.value }))}
             />
           </FormField>
-          <FormField id="edit-line-comment" label="Comment">
+          <FormField id="edit-line-comment" label={t("common.comment")}>
             <Textarea
               id="edit-line-comment"
               value={editLineDraft.comment}
@@ -674,65 +1279,76 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
       <Modal
         open={paymentModalOpen}
         onOpenChange={(open) => {
+          if (open && !canAddPayment) {
+            setPaymentError(t("work_order_detail.error.payment_not_allowed_for_cancelled"));
+            return;
+          }
           setPaymentModalOpen(open);
           if (!open) {
             setPaymentError(null);
           }
         }}
-        title="Add payment"
-        description="Payment does not close work order automatically"
+        title={t("work_order_detail.payments.add")}
+        description={t("work_order_detail.payments.description")}
         footer={
           <FormActions>
             <Button variant="secondary" onClick={() => setPaymentModalOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={async () => {
                 const amount = Number(paymentDraft.amount);
+                if (!canAddPayment) {
+                  setPaymentError(t("work_order_detail.error.payment_not_allowed_for_cancelled"));
+                  return;
+                }
                 if (!Number.isFinite(amount) || amount <= 0) {
-                  setPaymentError("Payment amount must be greater than 0.");
+                  setPaymentError(t("work_order_detail.error.payment_amount"));
                   return;
                 }
                 setPaymentError(null);
-                await addPaymentMutation.mutateAsync({
-                  amount,
-                  method: paymentDraft.method,
-                  comment: paymentDraft.comment.trim() || null
-                });
-                setPaymentModalOpen(false);
-                setPaymentDraft({ amount: "", method: "cash", comment: "" });
+                try {
+                  await addPaymentMutation.mutateAsync({
+                    amount,
+                    method: paymentDraft.method,
+                    comment: paymentDraft.comment.trim() || null
+                  });
+                  setPaymentModalOpen(false);
+                  setPaymentDraft({ amount: "", method: "cash", comment: "" });
+                } catch (error) {
+                  setPaymentError(resolveWorkOrderActionError(error, t));
+                }
               }}
               loading={addPaymentMutation.isPending}
             >
-              Add payment
+              {t("work_order_detail.payments.add")}
             </Button>
           </FormActions>
         }
       >
         <div className="space-y-2">
-          <FormField id="payment-amount" label="Amount" required>
+          <FormField id="payment-amount" label={t("common.amount")} required>
             <Input
               id="payment-amount"
               value={paymentDraft.amount}
               onChange={(event) => setPaymentDraft((prev) => ({ ...prev, amount: event.target.value }))}
             />
           </FormField>
-          <FormField id="payment-method" label="Method" required>
-            <select
+          <FormField id="payment-method" label={t("common.method")} required>
+            <Select
               id="payment-method"
-              className="h-5 w-full rounded-sm border border-neutral-300 bg-neutral-0 px-2 text-sm text-neutral-900"
               value={paymentDraft.method}
               onChange={(event) =>
                 setPaymentDraft((prev) => ({ ...prev, method: event.target.value as "cash" | "card" | "transfer" | "other" }))
               }
             >
-              <option value="cash">cash</option>
-              <option value="card">card</option>
-              <option value="transfer">transfer</option>
-              <option value="other">other</option>
-            </select>
+              <option value="cash">{t("work_order_detail.payment_method.cash")}</option>
+              <option value="card">{t("work_order_detail.payment_method.card")}</option>
+              <option value="transfer">{t("work_order_detail.payment_method.transfer")}</option>
+              <option value="other">{t("work_order_detail.payment_method.other")}</option>
+            </Select>
           </FormField>
-          <FormField id="payment-comment" label="Comment">
+          <FormField id="payment-comment" label={t("common.comment")}>
             <Textarea
               id="payment-comment"
               value={paymentDraft.comment}
@@ -745,3 +1361,5 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
     </PageLayout>
   );
 }
+
+

@@ -1,7 +1,10 @@
-﻿import { AlertTriangle } from "lucide-react";
+"use client";
+
+import { AlertTriangle } from "lucide-react";
 
 import { Button } from "@/design-system/primitives/button";
 import { Card } from "@/design-system/primitives/card";
+import { useI18n } from "@/shared/i18n";
 
 type ErrorStateProps = {
   title: string;
@@ -10,6 +13,8 @@ type ErrorStateProps = {
 };
 
 export function ErrorState({ title, description, onRetry }: ErrorStateProps): JSX.Element {
+  const { t } = useI18n();
+
   return (
     <Card className="border-danger/30 p-4">
       <div className="flex items-start gap-2">
@@ -20,7 +25,7 @@ export function ErrorState({ title, description, onRetry }: ErrorStateProps): JS
           {onRetry ? (
             <div className="mt-3">
               <Button variant="secondary" onClick={onRetry}>
-                Retry
+                {t("datatable.retry")}
               </Button>
             </div>
           ) : null}

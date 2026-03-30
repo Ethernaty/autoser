@@ -12,9 +12,11 @@ from app.controllers.schemas.vehicle_schemas import (
     VehicleUpdateRequest,
 )
 from app.controllers.schemas.work_order_schemas import WorkOrderResponse
+from app.controllers.schemas.work_order_schemas import WorkOrderHistoryItemResponse
 from app.core.config import get_settings
 from app.core.request_context import UserRequestContext, get_current_tenant_id, get_current_user_context
 from app.middleware.permission_guard import RequirePermission
+from app.services.client_service import ClientService
 from app.services.vehicle_service import VehicleService
 from app.services.work_order_service import WorkOrderService
 
@@ -41,6 +43,13 @@ def get_work_order_service(
     return WorkOrderService(tenant_id=tenant_id, actor_user_id=context.user_id, actor_role=context.role)
 
 
+def get_client_service(
+    tenant_id: UUID = Depends(get_current_tenant_id),
+    context: UserRequestContext = Depends(get_current_user_context),
+) -> ClientService:
+    return ClientService(tenant_id=tenant_id, actor_user_id=context.user_id, actor_role=context.role)
+
+
 def _order_to_response(order, paid_amount="0.00", remaining_amount=None) -> WorkOrderResponse:
     paid = paid_amount if isinstance(paid_amount, Decimal) else Decimal(str(paid_amount))
     remaining = remaining_amount if remaining_amount is not None else max(order.total_amount - paid, Decimal("0.00"))
@@ -60,6 +69,18 @@ def _order_to_response(order, paid_amount="0.00", remaining_amount=None) -> Work
         created_at=order.created_at,
         updated_at=order.updated_at,
     )
+
+
+def _to_work_summary(order_lines: list[object]) -> str | None:
+    if not order_lines:
+        return None
+    names = [str(getattr(item, "name", "")).strip() for item in order_lines if str(getattr(item, "name", "")).strip()]
+    if not names:
+        return None
+    preview = names[:3]
+    if len(names) > 3:
+        preview.append(f"+{len(names) - 3} more")
+    return ", ".join(preview)
 
 
 @router.post("/", response_model=VehicleResponse, dependencies=[Depends(RequirePermission("vehicles", "create"))])
@@ -147,3 +168,53 @@ async def vehicle_work_order_history(
             continue
         result.append(_order_to_response(order, paid_amount=financials.paid_amount, remaining_amount=financials.remaining_amount))
     return result
+
+
+@router.get(
+    "/{vehicle_id}/history",
+    response_model=list[WorkOrderHistoryItemResponse],
+    dependencies=[Depends(RequirePermission("orders", "read"))],
+)
+async def vehicle_operational_history(
+    vehicle_id: UUID,
+    limit: int = Query(default=50, ge=1, le=MAX_LIMIT),
+    offset: int = Query(default=0, ge=0),
+    vehicle_service: VehicleService = Depends(get_vehicle_service),
+    work_order_service: WorkOrderService = Depends(get_work_order_service),
+    client_service: ClientService = Depends(get_client_service),
+) -> list[WorkOrderHistoryItemResponse]:
+    orders = await vehicle_service.list_work_order_history(vehicle_id=vehicle_id, limit=limit, offset=offset)
+    order_ids = [item.id for item in orders]
+    client_ids = list({item.client_id for item in orders})
+    clients = await client_service.list_clients_by_ids(ids=client_ids)
+    client_map = {item.id: item for item in clients}
+    financials_map = await work_order_service.get_financials_map(work_order_ids=order_ids)
+    lines_map = await work_order_service.get_order_lines_map(work_order_ids=order_ids)
+
+    response: list[WorkOrderHistoryItemResponse] = []
+    for order in orders:
+        financials = financials_map.get(order.id)
+        paid_amount = financials.paid_amount if financials is not None else Decimal("0.00")
+        remaining_amount = financials.remaining_amount if financials is not None else max(order.total_amount - paid_amount, Decimal("0.00"))
+        client = client_map.get(order.client_id)
+        response.append(
+            WorkOrderHistoryItemResponse(
+                id=order.id,
+                client_id=order.client_id,
+                client_name=client.name if client is not None else None,
+                vehicle_id=order.vehicle_id,
+                vehicle_plate_number=None,
+                vehicle_make_model=None,
+                description=order.description,
+                work_summary=_to_work_summary(lines_map.get(order.id, [])),
+                status=order.status,
+                total_amount=order.total_amount,
+                paid_amount=paid_amount,
+                remaining_amount=remaining_amount,
+                visit_at=order.created_at,
+                created_at=order.created_at,
+                updated_at=order.updated_at,
+            )
+        )
+
+    return response

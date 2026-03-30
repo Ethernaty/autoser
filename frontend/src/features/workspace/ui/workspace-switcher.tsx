@@ -2,9 +2,10 @@
 
 import { useMemo } from "react";
 
-import { Select } from "@/design-system/primitives";
+import { Combobox } from "@/design-system/primitives";
 import { useSwitchWorkspaceMutation, useWorkspaceQuery } from "@/features/workspace/hooks";
 import { useWorkspaceStore } from "@/features/workspace/model/workspace-store";
+import { useI18n } from "@/shared/i18n";
 
 type WorkspaceSwitcherProps = {
   compact?: boolean;
@@ -12,11 +13,21 @@ type WorkspaceSwitcherProps = {
 };
 
 export function WorkspaceSwitcher({ compact = false, hideError = false }: WorkspaceSwitcherProps): JSX.Element {
+  const { t } = useI18n();
   const workspaceQuery = useWorkspaceQuery();
   const switchWorkspaceMutation = useSwitchWorkspaceMutation();
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
 
   const options = useMemo(() => workspaceQuery.data?.workspaces ?? [], [workspaceQuery.data?.workspaces]);
+  const comboboxOptions = useMemo(
+    () =>
+      options.map((workspace) => ({
+        value: workspace.id,
+        label: workspace.name,
+        keywords: [workspace.slug]
+      })),
+    [options]
+  );
 
   const selectedWorkspaceId = activeWorkspaceId ?? workspaceQuery.data?.activeWorkspaceId ?? "";
 
@@ -31,30 +42,26 @@ export function WorkspaceSwitcher({ compact = false, hideError = false }: Worksp
   return (
     <div className={compact ? "w-[172px]" : "min-w-[180px] max-w-[240px]"}>
       <label className="sr-only" htmlFor="workspace-switcher">
-        Active workspace
+        {t("workspace.switcher.active")}
       </label>
-      <Select
+      <Combobox
         id="workspace-switcher"
-        variant={compact ? "subtle" : "default"}
         className={
           compact
-            ? "h-[32px] border-transparent bg-neutral-100 px-[10px] hover:border-neutral-300 hover:bg-neutral-0 focus-visible:ring-1 focus-visible:ring-neutral-300"
+            ? "[&>button]:h-[32px] [&>button]:border-transparent [&>button]:bg-neutral-100 [&>button]:px-[10px] [&>button]:hover:border-neutral-300 [&>button]:hover:bg-neutral-0 [&>button]:focus-visible:ring-1 [&>button]:focus-visible:ring-neutral-300"
             : undefined
         }
         value={selectedWorkspaceId}
-        title="Switch workspace"
-        onChange={(event) => {
-          void onChangeWorkspace(event.target.value);
+        onChange={(value) => {
+          void onChangeWorkspace(value);
         }}
         disabled={workspaceQuery.isPending || switchWorkspaceMutation.isPending || options.length === 0}
-      >
-        {options.length === 0 ? <option value="">Workspace loading</option> : null}
-        {options.map((workspace) => (
-          <option key={workspace.id} value={workspace.id} disabled={!workspace.isActive}>
-            {workspace.name}
-          </option>
-        ))}
-      </Select>
+        options={comboboxOptions}
+        placeholder={t("workspace.switcher.loading")}
+        searchPlaceholder={t("workspace.switcher.search")}
+        emptyText={t("workspace.switcher.empty")}
+        size={compact ? "sm" : "md"}
+      />
       {!hideError && switchWorkspaceMutation.error ? (
         <p className="mt-1 text-xs text-error">{switchWorkspaceMutation.error.message}</p>
       ) : null}

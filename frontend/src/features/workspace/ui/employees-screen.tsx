@@ -1,8 +1,10 @@
-"use client";
+﻿"use client";
 
 import type { Route } from "next";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Eye, EyeOff, MoreHorizontal } from "lucide-react";
+import { createPortal } from "react-dom";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { DataTable } from "@/design-system/primitives/data-table/data-table";
@@ -17,27 +19,36 @@ import {
   updateEmployee
 } from "@/features/workspace/api/mvp-api";
 import type { EmployeeRecord } from "@/features/workspace/types/mvp-types";
+import { useI18n } from "@/shared/i18n";
 
 const PAGE_SIZE = 20;
 
 type EmployeeForm = {
+  full_name: string;
   email: string;
   password: string;
+  password_confirm: string;
   role: string;
 };
 
 function defaultEmployeeForm(): EmployeeForm {
   return {
+    full_name: "",
     email: "",
     password: "",
+    password_confirm: "",
     role: "employee"
   };
 }
 
-function formatEmployeeName(email: string): string {
+function formatEmployeeName(fullName: string | null | undefined, email: string): string {
+  const normalizedFullName = fullName?.trim();
+  if (normalizedFullName) {
+    return normalizedFullName;
+  }
   const local = email.split("@")[0] ?? "";
   if (!local) {
-    return "Employee";
+    return "";
   }
 
   return local
@@ -45,10 +56,6 @@ function formatEmployeeName(email: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
-}
-
-function formatRoleLabel(role: string): string {
-  return role.charAt(0).toUpperCase() + role.slice(1);
 }
 
 function roleTone(role: string): "primary" | "neutral" {
@@ -59,44 +66,116 @@ function EmployeeRowActions({
   onEdit,
   onToggle,
   isActive,
-  disabled
+  disabled,
+  t
 }: {
   onEdit: () => void;
   onToggle: () => void;
   isActive: boolean;
   disabled: boolean;
+  t: (key: string) => string;
 }): JSX.Element {
-  const [value, setValue] = useState("");
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
+
+  const updateMenuPosition = useCallback((): void => {
+    const trigger = triggerRef.current;
+    if (!trigger) {
+      return;
+    }
+
+    const rect = trigger.getBoundingClientRect();
+    const width = 180;
+    const margin = 8;
+    const spaceBelow = window.innerHeight - rect.bottom - margin;
+    const showAbove = spaceBelow < 120 && rect.top > 140;
+
+    setMenuStyle({
+      position: "fixed",
+      top: showAbove ? rect.top - 92 : rect.bottom + 6,
+      left: Math.max(margin, rect.right - width),
+      width,
+      zIndex: 150
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onPointerDown = (event: MouseEvent): void => {
+      if (!rootRef.current) {
+        return;
+      }
+      const targetNode = event.target as Node;
+      const clickInsideTrigger = rootRef.current.contains(targetNode);
+      const clickInsideMenu = menuRef.current?.contains(targetNode) ?? false;
+      if (!clickInsideTrigger && !clickInsideMenu) {
+        setOpen(false);
+      }
+    };
+    const onReposition = (): void => {
+      updateMenuPosition();
+    };
+    updateMenuPosition();
+    document.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("scroll", onReposition, true);
+    window.addEventListener("resize", onReposition);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("scroll", onReposition, true);
+      window.removeEventListener("resize", onReposition);
+    };
+  }, [open, updateMenuPosition]);
 
   return (
-    <Select
-      variant="subtle"
-      className="h-8 w-[132px]"
-      value={value}
-      disabled={disabled}
-      onClick={(event) => event.stopPropagation()}
-      onChange={(event) => {
-        const nextValue = event.target.value;
-        setValue("");
-
-        if (nextValue === "edit") {
-          onEdit();
-          return;
-        }
-
-        if (nextValue === "toggle") {
-          onToggle();
-        }
-      }}
-    >
-      <option value="">Actions</option>
-      <option value="edit">Edit</option>
-      <option value="toggle">{isActive ? "Deactivate" : "Activate"}</option>
-    </Select>
+    <div className="relative" ref={rootRef} onClick={(event) => event.stopPropagation()}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-transparent text-neutral-600 transition-colors hover:border-neutral-300 hover:bg-neutral-50 hover:text-neutral-900"
+        disabled={disabled}
+        onClick={() => setOpen((prev) => !prev)}
+        aria-label={t("common.actions")}
+      >
+        <MoreHorizontal className="h-4 w-4" />
+      </button>
+      {open && menuStyle
+        ? createPortal(
+            <div ref={menuRef} className="rounded-md border border-neutral-200 bg-neutral-0 p-1 shadow-md" style={menuStyle}>
+              <button
+                type="button"
+                className="w-full rounded-md px-2 py-1.5 text-left text-sm text-neutral-800 hover:bg-neutral-100"
+                onClick={() => {
+                  setOpen(false);
+                  onEdit();
+                }}
+              >
+                {t("common.edit")}
+              </button>
+              <button
+                type="button"
+                className="w-full rounded-md px-2 py-1.5 text-left text-sm text-neutral-800 hover:bg-neutral-100"
+                onClick={() => {
+                  setOpen(false);
+                  onToggle();
+                }}
+              >
+                {isActive ? t("employees.deactivate") : t("employees.activate")}
+              </button>
+            </div>,
+            document.body
+          )
+        : null}
+    </div>
   );
 }
 
 export function EmployeesScreen(): JSX.Element {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();
@@ -112,6 +191,8 @@ export function EmployeesScreen(): JSX.Element {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<EmployeeRecord | null>(null);
   const [form, setForm] = useState<EmployeeForm>(defaultEmployeeForm());
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -193,6 +274,8 @@ export function EmployeesScreen(): JSX.Element {
   const onOpenCreate = (): void => {
     setEditingEmployee(null);
     setForm(defaultEmployeeForm());
+    setShowPassword(false);
+    setShowPasswordConfirm(false);
     setError(null);
     setModalOpen(true);
   };
@@ -200,10 +283,14 @@ export function EmployeesScreen(): JSX.Element {
   const onOpenEdit = (employee: EmployeeRecord): void => {
     setEditingEmployee(employee);
     setForm({
+      full_name: employee.full_name ?? "",
       email: employee.email,
       password: "",
+      password_confirm: "",
       role: employee.role
     });
+    setShowPassword(false);
+    setShowPasswordConfirm(false);
     setError(null);
     setModalOpen(true);
   };
@@ -214,10 +301,10 @@ export function EmployeesScreen(): JSX.Element {
     () => [
       {
         id: "employee",
-        header: "Employee",
+        header: t("employees.table.employee"),
         minWidth: 320,
         cell: (row) => {
-          const displayName = formatEmployeeName(row.email);
+          const displayName = formatEmployeeName(row.full_name, row.email);
           const initials = displayName
             .split(" ")
             .filter(Boolean)
@@ -232,7 +319,7 @@ export function EmployeesScreen(): JSX.Element {
                 {initials || "E"}
               </span>
               <span className="min-w-0">
-                <span className="block truncate font-semibold text-neutral-900">{displayName || "Employee"}</span>
+                <span className="block truncate font-semibold text-neutral-900">{displayName || t("employees.default_name")}</span>
                 <span className="block truncate text-xs text-neutral-600">{row.email}</span>
               </span>
             </div>
@@ -241,15 +328,15 @@ export function EmployeesScreen(): JSX.Element {
       },
       {
         id: "role",
-        header: "Role",
+        header: t("employees.table.role"),
         minWidth: 120,
-        cell: (row) => <Badge tone={roleTone(row.role)}>{formatRoleLabel(row.role)}</Badge>
+        cell: (row) => <Badge tone={roleTone(row.role)}>{t(`employees.role.${row.role}`)}</Badge>
       },
       {
         id: "status",
-        header: "Status",
+        header: t("common.status"),
         minWidth: 120,
-        cell: (row) => (row.is_active ? <Badge tone="success">Active</Badge> : <Badge tone="warning">Inactive</Badge>)
+        cell: (row) => (row.is_active ? <Badge tone="success">{t("employees.status.active")}</Badge> : <Badge tone="warning">{t("employees.status.inactive")}</Badge>)
       },
       {
         id: "actions",
@@ -259,6 +346,7 @@ export function EmployeesScreen(): JSX.Element {
         cell: (row) => (
           <div className="flex justify-end">
             <EmployeeRowActions
+              t={t}
               disabled={isStatusMutationPending}
               isActive={row.is_active}
               onEdit={() => onOpenEdit(row)}
@@ -270,34 +358,50 @@ export function EmployeesScreen(): JSX.Element {
         )
       }
     ],
-    [isStatusMutationPending, onOpenEdit, statusMutation]
+    [isStatusMutationPending, onOpenEdit, statusMutation, t]
   );
 
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
-    if (!form.email.trim() || !form.role.trim()) {
-      setError("Email and role are required.");
+    if (!form.full_name.trim() || !form.role.trim()) {
+      setError(t("employees.form.error.required"));
       return;
     }
-    if (!editingEmployee && form.password.trim().length < 8) {
-      setError("Password must contain at least 8 characters.");
+    const normalizedPassword = form.password.trim();
+    if (!editingEmployee && normalizedPassword.length < 8) {
+      setError(t("employees.form.error.password"));
       return;
     }
+    if ((editingEmployee && normalizedPassword.length > 0) || !editingEmployee) {
+      if (normalizedPassword !== form.password_confirm.trim()) {
+        setError(t("employees.form.error.password_mismatch"));
+        return;
+      }
+    }
+
+    const normalizedEmail = form.email.trim();
+    if (normalizedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      setError(t("employees.form.error.email"));
+      return;
+    }
+
     setError(null);
 
     if (editingEmployee) {
       await updateMutation.mutateAsync({
         employeeId: editingEmployee.employee_id,
         payload: {
-          email: form.email.trim(),
+          full_name: form.full_name.trim(),
+          email: normalizedEmail || undefined,
           role: form.role,
-          password: form.password.trim() ? form.password.trim() : undefined
+          password: normalizedPassword ? normalizedPassword : undefined
         }
       });
     } else {
       await createMutation.mutateAsync({
-        email: form.email.trim(),
-        password: form.password.trim(),
+        full_name: form.full_name.trim(),
+        email: normalizedEmail || null,
+        password: normalizedPassword,
         role: form.role
       });
     }
@@ -309,17 +413,17 @@ export function EmployeesScreen(): JSX.Element {
 
   return (
     <PageLayout
-      title="Employees"
-      subtitle="Workspace team directory and access roles"
+      title={t("employees.title")}
+      subtitle={t("employees.subtitle")}
       className="space-y-2"
       actions={
         <Button variant="primary" onClick={onOpenCreate}>
-          Add employee
+          {t("employees.add")}
         </Button>
       }
     >
       <div className="space-y-1.5">
-        <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search employees by name or email" />
+        <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("employees.search_placeholder")} />
 
         <DataTable
           columns={columns}
@@ -329,11 +433,11 @@ export function EmployeesScreen(): JSX.Element {
           loading={employeesQuery.isLoading}
           error={employeesQuery.error?.message}
           onRetry={() => void employeesQuery.refetch()}
-          emptyTitle="No employees yet"
-          emptyDescription="Add your first employee to start assigning work orders."
+          emptyTitle={t("employees.empty.title")}
+          emptyDescription={t("employees.empty.description")}
           emptyAction={
             <Button variant="primary" onClick={onOpenCreate}>
-              Add employee
+              {t("employees.add")}
             </Button>
           }
           tableClassName="min-w-full"
@@ -356,48 +460,83 @@ export function EmployeesScreen(): JSX.Element {
       <Modal
         open={modalOpen}
         onOpenChange={setModalOpen}
-        title={editingEmployee ? "Edit employee" : "Create employee"}
-        description="Employee API uses canonical /employees endpoints"
+        title={editingEmployee ? t("employees.modal.edit_title") : t("employees.modal.create_title")}
+        description={t("employees.modal.description")}
         footer={
           <FormActions>
             <Button variant="secondary" onClick={() => setModalOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" form="employee-form" loading={createMutation.isPending || updateMutation.isPending}>
-              {editingEmployee ? "Save" : "Create"}
+              {editingEmployee ? t("common.save") : t("common.create")}
             </Button>
           </FormActions>
         }
       >
         <form id="employee-form" className="space-y-2" onSubmit={(event) => void onSubmit(event)}>
-          <FormField id="employee-email" label="Email" required>
+          <FormField id="employee-full-name" label={t("employees.form.full_name")} required>
+            <Input
+              id="employee-full-name"
+              value={form.full_name}
+              onChange={(event) => setForm((prev) => ({ ...prev, full_name: event.target.value }))}
+            />
+          </FormField>
+          <FormField id="employee-email" label={t("employees.form.email_optional")}>
             <Input
               id="employee-email"
               type="email"
               value={form.email}
+              placeholder={t("employees.form.email_optional_placeholder")}
               onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
             />
           </FormField>
-          <FormField id="employee-role" label="Role" required>
-            <select
-              id="employee-role"
-              className="h-5 w-full rounded-sm border border-neutral-300 bg-neutral-0 px-2 text-sm text-neutral-900"
-              value={form.role}
-              onChange={(event) => setForm((prev) => ({ ...prev, role: event.target.value }))}
-            >
-              <option value="owner">owner</option>
-              <option value="admin">admin</option>
-              <option value="manager">manager</option>
-              <option value="employee">employee</option>
-            </select>
+          <FormField id="employee-role" label={t("employees.form.position")} required>
+            <Select id="employee-role" value={form.role} onChange={(event) => setForm((prev) => ({ ...prev, role: event.target.value }))}>
+              <option value="owner">{t("employees.role.owner")}</option>
+              <option value="admin">{t("employees.role.admin")}</option>
+              <option value="manager">{t("employees.role.manager")}</option>
+              <option value="employee">{t("employees.role.employee")}</option>
+            </Select>
           </FormField>
-          <FormField id="employee-password" label={editingEmployee ? "Password (optional)" : "Password"} required={!editingEmployee}>
-            <Input
-              id="employee-password"
-              type="password"
-              value={form.password}
-              onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
-            />
+          <FormField id="employee-password" label={editingEmployee ? t("employees.form.password_optional") : t("common.password")} required={!editingEmployee}>
+            <div className="relative">
+              <Input
+                id="employee-password"
+                type={showPassword ? "text" : "password"}
+                value={form.password}
+                onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
+              />
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-800"
+                onClick={() => setShowPassword((prev) => !prev)}
+                aria-label={showPassword ? t("employees.form.hide_password") : t("employees.form.show_password")}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </FormField>
+          <FormField
+            id="employee-password-confirm"
+            label={t("employees.form.password_confirm")}
+            required={!editingEmployee || Boolean(form.password.trim())}
+          >
+            <div className="relative">
+              <Input
+                id="employee-password-confirm"
+                type={showPasswordConfirm ? "text" : "password"}
+                value={form.password_confirm}
+                onChange={(event) => setForm((prev) => ({ ...prev, password_confirm: event.target.value }))}
+              />
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-800"
+                onClick={() => setShowPasswordConfirm((prev) => !prev)}
+                aria-label={showPasswordConfirm ? t("employees.form.hide_password") : t("employees.form.show_password")}
+              >
+                {showPasswordConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </FormField>
           {error ? <p className="text-sm text-error">{error}</p> : null}
           {createMutation.error ? <p className="text-sm text-error">{createMutation.error.message}</p> : null}

@@ -7,13 +7,15 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class EmployeeCreateRequest(BaseModel):
-    email: EmailStr
+    email: EmailStr | None = None
+    full_name: str | None = Field(default=None, min_length=1, max_length=160)
     password: str = Field(min_length=8, max_length=128)
     role: str = Field(min_length=4, max_length=20)
 
 
 class EmployeeUpdateRequest(BaseModel):
     email: EmailStr | None = None
+    full_name: str | None = Field(default=None, min_length=1, max_length=160)
     password: str | None = Field(default=None, min_length=8, max_length=128)
     role: str | None = Field(default=None, min_length=4, max_length=20)
     is_active: bool | None = None
@@ -29,6 +31,7 @@ class EmployeeResponse(BaseModel):
     employee_id: UUID
     user_id: UUID
     tenant_id: UUID
+    full_name: str | None = None
     email: EmailStr
     role: str
     is_active: bool

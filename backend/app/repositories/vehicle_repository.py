@@ -21,6 +21,15 @@ class VehicleRepository(BaseRepositoryTenantScoped[Vehicle]):
         stmt = self.scoped_select(Vehicle.id == entity_id)
         return self.db.execute(stmt).scalar_one_or_none()
 
+    def list_by_ids(self, ids: list[UUID], *, include_archived: bool = True) -> list[Vehicle]:
+        if not ids:
+            return []
+        criteria: list[object] = [Vehicle.id.in_(ids)]
+        if not include_archived:
+            criteria.append(Vehicle.archived_at.is_(None))
+        stmt = self.scoped_select(*criteria)
+        return list(self.db.execute(stmt).scalars().all())
+
     def list_by_client(self, *, client_id: UUID, include_archived: bool = False) -> list[Vehicle]:
         criteria: list[object] = [Vehicle.client_id == client_id]
         if not include_archived:

@@ -25,6 +25,15 @@ class OrderLineRepository(BaseRepositoryTenantScoped[OrderLine]):
         stmt = self.scoped_select(OrderLine.order_id == order_id).order_by(OrderLine.position.asc(), OrderLine.created_at.asc())
         return list(self.db.execute(stmt).scalars().all())
 
+    def list_for_orders(self, *, order_ids: list[UUID]) -> list[OrderLine]:
+        if not order_ids:
+            return []
+        stmt = (
+            self.scoped_select(OrderLine.order_id.in_(order_ids))
+            .order_by(OrderLine.order_id.asc(), OrderLine.position.asc(), OrderLine.created_at.asc())
+        )
+        return list(self.db.execute(stmt).scalars().all())
+
     def update(self, line_id: UUID, **updates: object) -> OrderLine | None:
         line = self.get_by_id(line_id)
         if line is None:

@@ -1,7 +1,9 @@
-﻿"use client";
+"use client";
 
 import { ErrorState } from "@/shared/ui/error-state";
+import { useI18n } from "@/shared/i18n";
 
 export default function AppError({ error, reset }: { error: Error; reset: () => void }): JSX.Element {
-  return <ErrorState title="Something went wrong" description={error.message} onRetry={reset} />;
+  const { t } = useI18n();
+  return <ErrorState title={t("app.error.title")} description={error.message} onRetry={reset} />;
 }

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -14,10 +14,12 @@ from app.core.database import SessionLocal
 from app.core.exceptions import AppError
 from app.core.input_security import guard_against_sqli, sanitize_text
 from app.models.audit_log import AuditLog
+from app.models.client import Client
 from app.models.membership import Membership, MembershipRole
 from app.models.order import Order, OrderStatus
 from app.models.order_line import OrderLine, OrderLineType
 from app.models.payment import Payment, PaymentMethod
+from app.models.user import User
 from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.client_repository import ClientRepository
 from app.repositories.order_line_repository import OrderLineRepository
@@ -37,6 +39,9 @@ _WORK_ORDER_TIMELINE_ACTIONS = {
     "work_order_lines_changed",
     "work_order_payment_recorded",
     "work_order_cancelled",
+    "work_order_assignee_changed",
+    "work_order_vehicle_changed",
+    "work_order_comment_added",
 }
 
 
@@ -45,6 +50,18 @@ class WorkOrderFinancials:
     total_amount: Decimal
     paid_amount: Decimal
     remaining_amount: Decimal
+
+
+@dataclass(frozen=True)
+class WorkOrderTimelineEntry:
+    id: UUID
+    work_order_id: UUID
+    action: str
+    message: str
+    user_id: UUID
+    actor_email: str | None
+    actor_role: str | None
+    created_at: datetime
 
 
 class WorkOrderService(BaseService):
@@ -113,6 +130,12 @@ class WorkOrderService(BaseService):
         normalized_status = self._normalize_status(status)
 
         def write_op(db: Session) -> Order:
+            if normalized_status in {OrderStatus.COMPLETED_UNPAID, OrderStatus.COMPLETED_PAID, OrderStatus.CANCELLED}:
+                raise AppError(
+                    status_code=400,
+                    code="invalid_initial_status",
+                    message="Work order can be created only in new or in_progress status",
+                )
             self._assert_client_exists(db=db, client_id=client_id)
             self._assert_vehicle_link(db=db, client_id=client_id, vehicle_id=vehicle_id)
             self._assert_assignee_valid(db=db, assigned_user_id=assigned_user_id)
@@ -176,17 +199,66 @@ class WorkOrderService(BaseService):
 
             previous_status = current.status
             previous_total_amount = Decimal(current.total_amount).quantize(_MONEY_QUANT)
-            if "status" in updates and isinstance(updates["status"], OrderStatus):
-                self._assert_status_transition(current=current.status, target=updates["status"])  # type: ignore[arg-type]
-                if updates["status"] == OrderStatus.COMPLETED_PAID:
-                    financials = self._financials_in_tx(db=db, order=current)
-                    if financials.remaining_amount > Decimal("0.00"):
-                        raise AppError(
-                            status_code=400,
-                            code="cannot_mark_completed_paid",
-                            message="Work order cannot be marked completed_paid while remaining amount is greater than zero",
-                            details={"remaining_amount": str(financials.remaining_amount)},
-                        )
+            paid_amount = self._paid_amount_in_tx(db=db, work_order_id=work_order_id)
+            effective_total_amount = (
+                Decimal(updates["total_amount"]).quantize(_MONEY_QUANT)
+                if "total_amount" in updates
+                else Decimal(current.total_amount).quantize(_MONEY_QUANT)
+            )
+            remaining_amount = max(effective_total_amount - paid_amount, Decimal("0.00")).quantize(_MONEY_QUANT)
+
+            if "total_amount" in updates and paid_amount > effective_total_amount:
+                raise AppError(
+                    status_code=400,
+                    code="total_below_paid_amount",
+                    message="Total amount cannot be lower than already paid amount",
+                    details={
+                        "paid_amount": str(paid_amount),
+                        "requested_total_amount": str(effective_total_amount),
+                    },
+                )
+
+            requested_status = updates.get("status")
+            if isinstance(requested_status, OrderStatus):
+                self._assert_status_transition(current=current.status, target=requested_status)
+
+            effective_status = requested_status if isinstance(requested_status, OrderStatus) else current.status
+
+            if effective_status == OrderStatus.COMPLETED_PAID and remaining_amount > Decimal("0.00"):
+                raise AppError(
+                    status_code=400,
+                    code="cannot_mark_completed_paid",
+                    message="Work order cannot be marked completed_paid while remaining amount is greater than zero",
+                    details={"remaining_amount": str(remaining_amount)},
+                )
+
+            if effective_status == OrderStatus.COMPLETED_UNPAID and remaining_amount <= Decimal("0.00"):
+                updates["status"] = OrderStatus.COMPLETED_PAID
+                effective_status = OrderStatus.COMPLETED_PAID
+
+            if effective_status == OrderStatus.CANCELLED and paid_amount > Decimal("0.00"):
+                raise AppError(
+                    status_code=400,
+                    code="cannot_cancel_paid_order",
+                    message="Cannot cancel work order with recorded payments",
+                    details={"paid_amount": str(paid_amount)},
+                )
+
+            if "status" not in updates and current.status == OrderStatus.COMPLETED_UNPAID and remaining_amount <= Decimal("0.00"):
+                updates["status"] = OrderStatus.COMPLETED_PAID
+
+            if (
+                "status" not in updates
+                and current.status == OrderStatus.COMPLETED_PAID
+                and remaining_amount > Decimal("0.00")
+            ):
+                raise AppError(
+                    status_code=400,
+                    code="completed_paid_payment_mismatch",
+                    message="completed_paid status requires full payment coverage",
+                    details={"remaining_amount": str(remaining_amount)},
+                )
+
             if "vehicle_id" in updates:
                 self._assert_vehicle_link(db=db, client_id=current.client_id, vehicle_id=updates["vehicle_id"])  # type: ignore[arg-type]
             if "assigned_user_id" in updates:
@@ -261,10 +333,24 @@ class WorkOrderService(BaseService):
             current = repo.get_by_id(work_order_id)
             if current is None:
                 raise AppError(status_code=404, code="work_order_not_found", message="Work order not found")
+            previous_assignee_id = current.assigned_user_id
             self._assert_assignee_valid(db=db, assigned_user_id=assigned_user_id)
             updated = repo.update(work_order_id, assigned_user_id=assigned_user_id)
             if updated is None:
                 raise AppError(status_code=404, code="work_order_not_found", message="Work order not found")
+            if previous_assignee_id != updated.assigned_user_id:
+                previous_label = str(previous_assignee_id) if previous_assignee_id is not None else "unassigned"
+                next_label = str(updated.assigned_user_id) if updated.assigned_user_id is not None else "unassigned"
+                self._write_work_order_event(
+                    db=db,
+                    work_order_id=work_order_id,
+                    action="work_order_assignee_changed",
+                    message=f"Assignee changed from {previous_label} to {next_label}",
+                    metadata={
+                        "from_assigned_user_id": str(previous_assignee_id) if previous_assignee_id is not None else None,
+                        "to_assigned_user_id": str(updated.assigned_user_id) if updated.assigned_user_id is not None else None,
+                    },
+                )
             return updated.id
 
         updated_id = await self.execute_write(write_op, idempotent=False)
@@ -277,10 +363,24 @@ class WorkOrderService(BaseService):
             current = repo.get_by_id(work_order_id)
             if current is None:
                 raise AppError(status_code=404, code="work_order_not_found", message="Work order not found")
+            previous_vehicle_id = current.vehicle_id
             self._assert_vehicle_link(db=db, client_id=current.client_id, vehicle_id=vehicle_id)
             updated = repo.update(work_order_id, vehicle_id=vehicle_id)
             if updated is None:
                 raise AppError(status_code=404, code="work_order_not_found", message="Work order not found")
+            if previous_vehicle_id != updated.vehicle_id:
+                previous_label = str(previous_vehicle_id) if previous_vehicle_id is not None else "none"
+                next_label = str(updated.vehicle_id) if updated.vehicle_id is not None else "none"
+                self._write_work_order_event(
+                    db=db,
+                    work_order_id=work_order_id,
+                    action="work_order_vehicle_changed",
+                    message=f"Vehicle changed from {previous_label} to {next_label}",
+                    metadata={
+                        "from_vehicle_id": str(previous_vehicle_id) if previous_vehicle_id is not None else None,
+                        "to_vehicle_id": str(updated.vehicle_id) if updated.vehicle_id is not None else None,
+                    },
+                )
             return updated.id
 
         updated_id = await self.execute_write(write_op, idempotent=False)
@@ -382,6 +482,11 @@ class WorkOrderService(BaseService):
             line = repo.get_by_id(line_id)
             if line is None or line.order_id != work_order_id:
                 raise AppError(status_code=404, code="order_line_not_found", message="Order line not found")
+            previous_line_type = line.line_type.value
+            previous_name = line.name
+            previous_quantity = Decimal(line.quantity).quantize(_MONEY_QUANT)
+            previous_unit_price = Decimal(line.unit_price).quantize(_MONEY_QUANT)
+            previous_comment = line.comment
 
             updates: dict[str, object] = {}
             if line_type is not None:
@@ -405,15 +510,32 @@ class WorkOrderService(BaseService):
                 raise AppError(status_code=404, code="order_line_not_found", message="Order line not found")
 
             new_total = self._recalculate_total_in_tx(db=db, work_order_id=work_order_id)
+            changed_fields: list[str] = []
+            if previous_line_type != updated.line_type.value:
+                changed_fields.append(f"type: {previous_line_type} -> {updated.line_type.value}")
+            if previous_name != updated.name:
+                changed_fields.append(f"name: {previous_name} -> {updated.name}")
+            if previous_quantity != Decimal(updated.quantity).quantize(_MONEY_QUANT):
+                changed_fields.append(
+                    f"quantity: {previous_quantity} -> {Decimal(updated.quantity).quantize(_MONEY_QUANT)}"
+                )
+            if previous_unit_price != Decimal(updated.unit_price).quantize(_MONEY_QUANT):
+                changed_fields.append(
+                    f"unit price: {previous_unit_price} -> {Decimal(updated.unit_price).quantize(_MONEY_QUANT)}"
+                )
+            if previous_comment != updated.comment:
+                changed_fields.append("comment updated")
+            line_update_suffix = "; ".join(changed_fields) if changed_fields else "fields updated"
             self._write_work_order_event(
                 db=db,
                 work_order_id=work_order_id,
                 action="work_order_lines_changed",
-                message=f"Updated line '{updated.name}'",
+                message=f"Updated line '{updated.name}': {line_update_suffix}",
                 metadata={
                     "change_type": "line_updated",
                     "line_id": str(updated.id),
                     "line_name": updated.name,
+                    "changed_fields": changed_fields,
                     "from_total_amount": str(previous_total),
                     "to_total_amount": str(new_total),
                 },
@@ -500,6 +622,12 @@ class WorkOrderService(BaseService):
 
         def write_op(db: Session) -> Payment:
             order = self._assert_order_exists(db=db, work_order_id=work_order_id)
+            if order.status == OrderStatus.CANCELLED:
+                raise AppError(
+                    status_code=400,
+                    code="payment_not_allowed_for_cancelled",
+                    message="Cannot create payment for cancelled work order",
+                )
             financials = self._financials_in_tx(db=db, order=order)
             if normalized_amount > financials.remaining_amount:
                 raise AppError(
@@ -563,17 +691,78 @@ class WorkOrderService(BaseService):
 
         return await self.execute_read(read_op)
 
-    async def list_work_order_timeline(self, *, work_order_id: UUID, limit: int = 100, offset: int = 0) -> list[AuditLog]:
+    async def list_work_order_timeline(
+        self,
+        *,
+        work_order_id: UUID,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[WorkOrderTimelineEntry]:
         safe_limit = max(1, min(200, int(limit)))
         safe_offset = max(0, int(offset))
 
-        def read_op(db: Session) -> list[AuditLog]:
+        def read_op(db: Session) -> list[WorkOrderTimelineEntry]:
             self._assert_order_exists(db=db, work_order_id=work_order_id)
             repo = AuditLogRepository(db=db, tenant_id=self.tenant_id)
             rows = repo.list_entity_logs(entity="work_order", entity_id=work_order_id, limit=safe_limit, offset=safe_offset)
-            return [item for item in rows if item.action in _WORK_ORDER_TIMELINE_ACTIONS]
+            timeline_rows = [item for item in rows if item.action in _WORK_ORDER_TIMELINE_ACTIONS]
+            user_ids = {item.user_id for item in timeline_rows}
+            actor_map: dict[UUID, tuple[str | None, str | None]] = {}
+            if user_ids:
+                actor_rows = db.execute(
+                    select(User.id, User.email, Membership.role)
+                    .select_from(User)
+                    .join(
+                        Membership,
+                        and_(Membership.user_id == User.id, Membership.tenant_id == self.tenant_id),
+                        isouter=True,
+                    )
+                    .where(User.id.in_(user_ids))
+                ).all()
+                for user_id, email, role in actor_rows:
+                    actor_map[user_id] = (
+                        str(email) if email is not None else None,
+                        role.value if isinstance(role, MembershipRole) else str(role) if role is not None else None,
+                    )
+
+            result: list[WorkOrderTimelineEntry] = []
+            for item in timeline_rows:
+                metadata = item.metadata_json if isinstance(item.metadata_json, dict) else {}
+                message = metadata.get("message") if isinstance(metadata.get("message"), str) else item.action
+                actor_email, actor_role = actor_map.get(item.user_id, (None, None))
+                result.append(
+                    WorkOrderTimelineEntry(
+                        id=item.id,
+                        work_order_id=item.entity_id or work_order_id,
+                        action=item.action,
+                        message=message,
+                        user_id=item.user_id,
+                        actor_email=actor_email,
+                        actor_role=actor_role,
+                        created_at=item.created_at,
+                    )
+                )
+            return result
 
         return await self.execute_read(read_op)
+
+    @audit(action="update", entity="work_order")
+    async def add_timeline_comment(self, *, work_order_id: UUID, comment: str) -> None:
+        normalized_comment = self._normalize_optional_comment(comment)
+        if not normalized_comment:
+            raise AppError(status_code=400, code="invalid_comment", message="Comment is required")
+
+        def write_op(db: Session) -> None:
+            self._assert_order_exists(db=db, work_order_id=work_order_id)
+            self._write_work_order_event(
+                db=db,
+                work_order_id=work_order_id,
+                action="work_order_comment_added",
+                message=normalized_comment,
+                metadata={"comment": normalized_comment},
+            )
+
+        await self.execute_write(write_op, idempotent=False)
 
     async def get_financials(self, *, work_order_id: UUID) -> WorkOrderFinancials:
         def read_op(db: Session) -> WorkOrderFinancials:
@@ -608,6 +797,20 @@ class WorkOrderService(BaseService):
                 total = Decimal(order.total_amount).quantize(_MONEY_QUANT)
                 remaining = max(total - paid, Decimal("0.00")).quantize(_MONEY_QUANT)
                 result[work_order_id] = WorkOrderFinancials(total_amount=total, paid_amount=paid, remaining_amount=remaining)
+            return result
+
+        return await self.execute_read(read_op)
+
+    async def get_order_lines_map(self, *, work_order_ids: list[UUID]) -> dict[UUID, list[OrderLine]]:
+        if not work_order_ids:
+            return {}
+
+        def read_op(db: Session) -> dict[UUID, list[OrderLine]]:
+            repo = OrderLineRepository(db=db, tenant_id=self.tenant_id)
+            lines = repo.list_for_orders(order_ids=work_order_ids)
+            result: dict[UUID, list[OrderLine]] = {work_order_id: [] for work_order_id in work_order_ids}
+            for line in lines:
+                result.setdefault(line.order_id, []).append(line)
             return result
 
         return await self.execute_read(read_op)
@@ -664,6 +867,290 @@ class WorkOrderService(BaseService):
                     }
                     for row in recent_rows
                 ],
+            }
+
+        return await self.execute_read(read_op)
+
+    async def get_dashboard_analytics(self, *, months: int = 12) -> dict[str, Any]:
+        safe_months = max(3, min(24, int(months)))
+
+        def month_start(value: datetime) -> datetime:
+            return value.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        def shift_month(value: datetime, delta: int) -> datetime:
+            year = value.year + ((value.month - 1 + delta) // 12)
+            month = ((value.month - 1 + delta) % 12) + 1
+            return value.replace(year=year, month=month)
+
+        def read_op(db: Session) -> dict[str, Any]:
+            now = datetime.now(UTC)
+            current_month = month_start(now)
+            month_range = [shift_month(current_month, -(safe_months - 1 - idx)) for idx in range(safe_months)]
+            oldest_month = month_range[0]
+            next_month = shift_month(current_month, 1)
+            last_30_days = now - timedelta(days=30)
+            last_180_days = now - timedelta(days=180)
+
+            clients_total = int(
+                db.execute(
+                    select(func.count()).select_from(Client).where(
+                        Client.tenant_id == self.tenant_id,
+                    )
+                ).scalar_one()
+            )
+            work_orders_total = int(
+                db.execute(
+                    select(func.count()).select_from(Order).where(
+                        Order.tenant_id == self.tenant_id,
+                    )
+                ).scalar_one()
+            )
+            open_work_orders_count = int(
+                db.execute(
+                    select(func.count()).select_from(Order).where(
+                        Order.tenant_id == self.tenant_id,
+                        Order.status.in_([OrderStatus.NEW, OrderStatus.IN_PROGRESS]),
+                    )
+                ).scalar_one()
+            )
+            closed_work_orders_count = int(
+                db.execute(
+                    select(func.count()).select_from(Order).where(
+                        Order.tenant_id == self.tenant_id,
+                        Order.status.in_([OrderStatus.COMPLETED_UNPAID, OrderStatus.COMPLETED_PAID, OrderStatus.CANCELLED]),
+                    )
+                ).scalar_one()
+            )
+            paid_amount_30d = Decimal(
+                db.execute(
+                    select(func.coalesce(func.sum(Payment.amount), 0)).where(
+                        Payment.tenant_id == self.tenant_id,
+                        Payment.voided_at.is_(None),
+                        Payment.paid_at >= last_30_days,
+                    )
+                ).scalar_one()
+                or 0
+            ).quantize(_MONEY_QUANT)
+
+            order_month_rows = db.execute(
+                select(
+                    func.date_trunc("month", Order.created_at).label("bucket"),
+                    func.count(Order.id).label("orders_count"),
+                    func.coalesce(func.sum(Order.total_amount), 0).label("order_amount"),
+                )
+                .where(
+                    Order.tenant_id == self.tenant_id,
+                    Order.created_at >= oldest_month,
+                    Order.created_at < next_month,
+                )
+                .group_by("bucket")
+            ).all()
+            order_month_map = {
+                row.bucket.date().replace(day=1): {
+                    "orders_count": int(row.orders_count or 0),
+                    "order_amount": Decimal(row.order_amount or 0).quantize(_MONEY_QUANT),
+                }
+                for row in order_month_rows
+                if row.bucket is not None
+            }
+
+            client_month_rows = db.execute(
+                select(
+                    func.date_trunc("month", Client.created_at).label("bucket"),
+                    func.count(Client.id).label("clients_count"),
+                )
+                .where(
+                    Client.tenant_id == self.tenant_id,
+                    Client.created_at >= oldest_month,
+                    Client.created_at < next_month,
+                )
+                .group_by("bucket")
+            ).all()
+            client_month_map = {
+                row.bucket.date().replace(day=1): int(row.clients_count or 0)
+                for row in client_month_rows
+                if row.bucket is not None
+            }
+
+            payment_month_rows = db.execute(
+                select(
+                    func.date_trunc("month", Payment.paid_at).label("bucket"),
+                    func.coalesce(func.sum(Payment.amount), 0).label("paid_amount"),
+                )
+                .where(
+                    Payment.tenant_id == self.tenant_id,
+                    Payment.voided_at.is_(None),
+                    Payment.paid_at >= oldest_month,
+                    Payment.paid_at < next_month,
+                )
+                .group_by("bucket")
+            ).all()
+            payment_month_map = {
+                row.bucket.date().replace(day=1): Decimal(row.paid_amount or 0).quantize(_MONEY_QUANT)
+                for row in payment_month_rows
+                if row.bucket is not None
+            }
+
+            client_source_rows = db.execute(
+                select(
+                    func.coalesce(func.nullif(func.trim(Client.source), ""), "unknown").label("source"),
+                    func.count(Client.id).label("clients_count"),
+                )
+                .where(Client.tenant_id == self.tenant_id)
+                .group_by("source")
+                .order_by(func.count(Client.id).desc())
+                .limit(6)
+            ).all()
+            client_sources = [
+                {
+                    "source": str(row.source),
+                    "clients_count": int(row.clients_count or 0),
+                }
+                for row in client_source_rows
+            ]
+
+            service_rows = db.execute(
+                select(
+                    func.lower(OrderLine.name).label("name_key"),
+                    func.max(OrderLine.name).label("display_name"),
+                    func.count(OrderLine.id).label("usage_count"),
+                )
+                .where(
+                    OrderLine.tenant_id == self.tenant_id,
+                    OrderLine.created_at >= last_180_days,
+                )
+                .group_by("name_key")
+                .order_by(func.count(OrderLine.id).desc())
+                .limit(6)
+            ).all()
+            popular_services = [
+                {
+                    "name": str(row.display_name),
+                    "usage_count": int(row.usage_count or 0),
+                }
+                for row in service_rows
+                if row.display_name
+            ]
+
+            paid_amount_subquery = (
+                select(
+                    Payment.order_id.label("order_id"),
+                    func.coalesce(func.sum(Payment.amount), 0).label("paid_amount"),
+                )
+                .where(
+                    Payment.tenant_id == self.tenant_id,
+                    Payment.voided_at.is_(None),
+                )
+                .group_by(Payment.order_id)
+                .subquery()
+            )
+            remaining_expr = Order.total_amount - func.coalesce(paid_amount_subquery.c.paid_amount, 0)
+
+            unpaid_orders_count = int(
+                db.execute(
+                    select(func.count())
+                    .select_from(Order)
+                    .outerjoin(paid_amount_subquery, paid_amount_subquery.c.order_id == Order.id)
+                    .where(
+                        Order.tenant_id == self.tenant_id,
+                        Order.status.in_([OrderStatus.NEW, OrderStatus.IN_PROGRESS, OrderStatus.COMPLETED_UNPAID]),
+                        remaining_expr > 0,
+                    )
+                ).scalar_one()
+            )
+
+            problematic_order_rows = db.execute(
+                select(
+                    Order.id,
+                    Order.description,
+                    Order.status,
+                    remaining_expr.label("remaining_amount"),
+                    Order.created_at,
+                )
+                .select_from(Order)
+                .outerjoin(paid_amount_subquery, paid_amount_subquery.c.order_id == Order.id)
+                .where(
+                    Order.tenant_id == self.tenant_id,
+                    Order.status.in_([OrderStatus.NEW, OrderStatus.IN_PROGRESS, OrderStatus.COMPLETED_UNPAID]),
+                    remaining_expr > 0,
+                )
+                .order_by(remaining_expr.desc(), Order.created_at.asc())
+                .limit(6)
+            ).all()
+            problematic_orders = [
+                {
+                    "id": row.id,
+                    "description": row.description,
+                    "status": row.status.value if isinstance(row.status, OrderStatus) else str(row.status),
+                    "remaining_amount": Decimal(row.remaining_amount or 0).quantize(_MONEY_QUANT),
+                    "created_at": row.created_at,
+                }
+                for row in problematic_order_rows
+            ]
+
+            seasonality_monthly = []
+            revenue_monthly = []
+            for month_point in month_range:
+                month_key = month_point.date().replace(day=1)
+                period = month_point.strftime("%Y-%m")
+                month_orders = order_month_map.get(month_key, {"orders_count": 0, "order_amount": Decimal("0.00")})
+                seasonality_monthly.append(
+                    {
+                        "period": period,
+                        "orders_count": int(month_orders["orders_count"]),
+                        "clients_count": int(client_month_map.get(month_key, 0)),
+                    }
+                )
+                revenue_monthly.append(
+                    {
+                        "period": period,
+                        "paid_amount": payment_month_map.get(month_key, Decimal("0.00")).quantize(_MONEY_QUANT),
+                        "order_amount": Decimal(month_orders["order_amount"]).quantize(_MONEY_QUANT),
+                    }
+                )
+
+            weekday_start = now - timedelta(days=30)
+            weekday_rows = db.execute(
+                select(
+                    func.extract("dow", Order.created_at).label("dow"),
+                    func.count(Order.id).label("orders_count"),
+                )
+                .where(
+                    Order.tenant_id == self.tenant_id,
+                    Order.created_at >= weekday_start,
+                )
+                .group_by("dow")
+            ).all()
+            weekday_map = {int(row.dow): int(row.orders_count or 0) for row in weekday_rows if row.dow is not None}
+            # PostgreSQL dow: 0=Sunday ... 6=Saturday
+            weekdays = [
+                ("mon", 1),
+                ("tue", 2),
+                ("wed", 3),
+                ("thu", 4),
+                ("fri", 5),
+                ("sat", 6),
+                ("sun", 0),
+            ]
+            load_by_weekday = [
+                {"weekday": label, "orders_count": int(weekday_map.get(dow, 0))}
+                for label, dow in weekdays
+            ]
+
+            return {
+                "generated_at": now,
+                "clients_total": clients_total,
+                "work_orders_total": work_orders_total,
+                "open_work_orders_count": open_work_orders_count,
+                "closed_work_orders_count": closed_work_orders_count,
+                "paid_amount_30d": paid_amount_30d,
+                "unpaid_orders_count": unpaid_orders_count,
+                "seasonality_monthly": seasonality_monthly,
+                "load_by_weekday": load_by_weekday,
+                "revenue_monthly": revenue_monthly,
+                "client_sources": client_sources,
+                "popular_services": popular_services,
+                "problematic_orders": problematic_orders,
             }
 
         return await self.execute_read(read_op)
@@ -772,6 +1259,10 @@ class WorkOrderService(BaseService):
         total = Decimal(order.total_amount).quantize(_MONEY_QUANT)
         remaining = max(total - paid, Decimal("0.00")).quantize(_MONEY_QUANT)
         return WorkOrderFinancials(total_amount=total, paid_amount=paid, remaining_amount=remaining)
+
+    def _paid_amount_in_tx(self, *, db: Session, work_order_id: UUID) -> Decimal:
+        pay_repo = PaymentRepository(db=db, tenant_id=self.tenant_id)
+        return pay_repo.sum_paid_for_order(order_id=work_order_id).quantize(_MONEY_QUANT)
 
     def _validate_pagination(self, *, limit: int, offset: int) -> None:
         if limit <= 0 or limit > self.max_limit or offset < 0:
