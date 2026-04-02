@@ -58,7 +58,7 @@ export function UserAccountMenu(): JSX.Element {
       <button
         type="button"
         className={cn(
-          "flex h-[32px] items-center gap-1.5 rounded-md border border-transparent bg-neutral-100 px-[10px] text-left text-neutral-700 transition-colors",
+          "flex h-[32px] items-center gap-1 rounded-md border border-transparent bg-neutral-100 px-2 text-left text-neutral-700 transition-colors sm:gap-1.5 sm:px-[10px]",
           "hover:border-neutral-300 hover:bg-neutral-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-300"
         )}
         onClick={() => setOpen((value) => !value)}
@@ -68,12 +68,12 @@ export function UserAccountMenu(): JSX.Element {
         <span className="inline-flex h-[24px] w-[24px] items-center justify-center rounded-full bg-neutral-300 text-[11px] font-semibold text-neutral-700">
           {initials}
         </span>
-        <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
+        <ChevronDown className={cn("hidden h-3.5 w-3.5 transition-transform sm:block", open && "rotate-180")} />
       </button>
 
       {open ? (
         <div
-          className="absolute right-0 top-[calc(100%+8px)] z-[120] w-[280px] rounded-md border border-neutral-200 bg-neutral-0 p-2 shadow-md"
+          className="absolute right-0 top-[calc(100%+8px)] z-[120] w-[min(88vw,280px)] rounded-md border border-neutral-200 bg-neutral-0 p-2 shadow-md"
           role="menu"
         >
           <div className="rounded-md border border-neutral-200 bg-neutral-50 px-2 py-2">
