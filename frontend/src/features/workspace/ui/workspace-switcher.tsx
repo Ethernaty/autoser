@@ -40,7 +40,7 @@ export function WorkspaceSwitcher({ compact = false, hideError = false }: Worksp
   };
 
   return (
-    <div className={compact ? "w-[172px]" : "min-w-[180px] max-w-[240px]"}>
+    <div className={compact ? "w-[132px] sm:w-[172px]" : "min-w-[180px] max-w-[240px]"}>
       <label className="sr-only" htmlFor="workspace-switcher">
         {t("workspace.switcher.active")}
       </label>

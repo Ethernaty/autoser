@@ -405,21 +405,39 @@ export function DashboardScreen(): JSX.Element {
 
   return (
     <PageLayout title={t("dashboard.title")} subtitle={t("dashboard.subtitle")}>
-      <Card className="border-neutral-200 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+      <Card className="border-neutral-200 p-3 sm:p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-neutral-900">{t("dashboard.quick_actions.title")}</p>
             <p className="text-xs text-neutral-600">{t("dashboard.quick_actions.description")}</p>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            <Link href={ROUTES.workOrderNew as Route}>
-              <Button variant="primary" size="sm">{t("dashboard.quick_actions.create_work_order")}</Button>
+          <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-cols-2 sm:gap-1.5 lg:grid-cols-3">
+            <Link href={ROUTES.workOrderNew as Route} className="w-full sm:w-auto">
+              <Button
+                variant="primary"
+                size="sm"
+                className="h-11 w-full justify-start px-3 text-[14px] sm:h-8 sm:w-auto sm:justify-center sm:px-2.5 sm:text-[13px]"
+              >
+                {t("dashboard.quick_actions.create_work_order")}
+              </Button>
             </Link>
-            <Link href={ROUTES.clients as Route}>
-              <Button variant="secondary" size="sm">{t("dashboard.quick_actions.add_client")}</Button>
+            <Link href={ROUTES.clients as Route} className="w-full sm:w-auto">
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-11 w-full justify-start px-3 text-[14px] sm:h-8 sm:w-auto sm:justify-center sm:px-2.5 sm:text-[13px]"
+              >
+                {t("dashboard.quick_actions.add_client")}
+              </Button>
             </Link>
-            <Link href={ROUTES.vehicles as Route}>
-              <Button variant="secondary" size="sm">{t("dashboard.quick_actions.add_vehicle")}</Button>
+            <Link href={ROUTES.vehicles as Route} className="w-full sm:w-auto">
+              <Button
+                variant="secondary"
+                size="sm"
+                className="h-11 w-full justify-start px-3 text-[14px] sm:h-8 sm:w-auto sm:justify-center sm:px-2.5 sm:text-[13px]"
+              >
+                {t("dashboard.quick_actions.add_vehicle")}
+              </Button>
             </Link>
           </div>
         </div>
@@ -509,14 +527,16 @@ export function DashboardScreen(): JSX.Element {
         ) : null}
       </StateBoundary>
 
-      <Card className="border-neutral-200 p-3">
-        <div className="mb-3 flex items-center justify-between gap-2 border-b border-neutral-100 pb-2">
+      <Card className="border-neutral-200 p-3 sm:p-4">
+        <div className="mb-3 flex flex-col items-start gap-2 border-b border-neutral-100 pb-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-neutral-900">{t("dashboard.active_orders.title")}</p>
             <p className="text-xs text-neutral-600">{t("dashboard.active_orders.description")}</p>
           </div>
-          <Link href={ROUTES.workOrders as Route}>
-            <Button size="sm" variant="secondary">{t("dashboard.active_orders.all")}</Button>
+          <Link href={ROUTES.workOrders as Route} className="w-full sm:w-auto">
+            <Button size="sm" variant="secondary" className="h-10 w-full sm:h-8 sm:w-auto">
+              {t("dashboard.active_orders.all")}
+            </Button>
           </Link>
         </div>
 
@@ -561,8 +581,10 @@ export function DashboardScreen(): JSX.Element {
             <p className="text-sm font-medium text-neutral-800">{t("dashboard.active_orders.empty_title")}</p>
             <p className="mt-1 text-sm text-neutral-600">{t("dashboard.active_orders.empty_description")}</p>
             <div className="mt-2">
-              <Link href={ROUTES.workOrderNew as Route}>
-                <Button size="sm" variant="primary">{t("dashboard.active_orders.empty_action")}</Button>
+              <Link href={ROUTES.workOrderNew as Route} className="w-full sm:w-auto">
+                <Button size="sm" variant="primary" className="h-10 w-full sm:h-8 sm:w-auto">
+                  {t("dashboard.active_orders.empty_action")}
+                </Button>
               </Link>
             </div>
           </div>

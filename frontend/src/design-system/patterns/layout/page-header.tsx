@@ -9,10 +9,10 @@ type PageHeaderProps = {
 
 export function PageHeader({ title, subtitle, actions, className }: PageHeaderProps): JSX.Element {
   return (
-    <header className={cn("flex flex-wrap items-start justify-between gap-3 border-b border-neutral-200 pb-3", className)}>
+    <header className={cn("flex flex-wrap items-start justify-between gap-2 border-b border-neutral-200 pb-2.5 sm:gap-3 sm:pb-3", className)}>
       <div className="min-w-0">
-        <h1 className="text-[24px] leading-8 font-semibold tracking-tight text-neutral-900">{title}</h1>
-        {subtitle ? <p className="mt-1 max-w-3xl text-sm text-neutral-600">{subtitle}</p> : null}
+        <h1 className="text-[24px] leading-8 font-semibold tracking-tight text-neutral-900 sm:text-[26px] sm:leading-8">{title}</h1>
+        {subtitle ? <p className="mt-1 max-w-3xl text-[13px] leading-5 text-neutral-600 sm:text-sm">{subtitle}</p> : null}
       </div>
       {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
     </header>

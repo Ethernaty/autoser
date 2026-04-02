@@ -11,8 +11,19 @@ type I18nContextValue = {
 };
 
 const STORAGE_KEY = "autoservice.crm.locale";
+let hasWarnedMissingProvider = false;
 
 const I18nContext = createContext<I18nContextValue | null>(null);
+
+function formatMessage(locale: AppLocale, key: string, params?: Record<string, string | number>): string {
+  const template = APP_MESSAGES[locale][key] ?? APP_MESSAGES[DEFAULT_LOCALE][key] ?? key;
+  if (!params) {
+    return template;
+  }
+  return Object.entries(params).reduce((value, [paramKey, paramValue]) => {
+    return value.replace(new RegExp(`\\{${paramKey}\\}`, "g"), String(paramValue));
+  }, template);
+}
 
 export function I18nProvider({ children }: PropsWithChildren): JSX.Element {
   const [locale, setLocaleState] = useState<AppLocale>(DEFAULT_LOCALE);
@@ -31,13 +42,7 @@ export function I18nProvider({ children }: PropsWithChildren): JSX.Element {
 
   const t = useCallback(
     (key: string, params?: Record<string, string | number>) => {
-      const template = APP_MESSAGES[locale][key] ?? APP_MESSAGES[DEFAULT_LOCALE][key] ?? key;
-      if (!params) {
-        return template;
-      }
-      return Object.entries(params).reduce((value, [paramKey, paramValue]) => {
-        return value.replace(new RegExp(`\\{${paramKey}\\}`, "g"), String(paramValue));
-      }, template);
+      return formatMessage(locale, key, params);
     },
     [locale]
   );
@@ -57,7 +62,18 @@ export function I18nProvider({ children }: PropsWithChildren): JSX.Element {
 export function useI18n(): I18nContextValue {
   const value = useContext(I18nContext);
   if (!value) {
-    throw new Error("useI18n must be used within I18nProvider");
+    if (process.env.NODE_ENV !== "production" && !hasWarnedMissingProvider) {
+      hasWarnedMissingProvider = true;
+      console.warn("useI18n called outside I18nProvider. Falling back to DEFAULT_LOCALE messages.");
+    }
+
+    return {
+      locale: DEFAULT_LOCALE,
+      setLocale: () => {
+        // Fallback mode outside provider: locale changes are intentionally no-op.
+      },
+      t: (key, params) => formatMessage(DEFAULT_LOCALE, key, params)
+    };
   }
   return value;
 }
