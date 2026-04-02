@@ -669,7 +669,7 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                   <Button variant="secondary" size="sm" onClick={() => void downloadDocument("pdf")} loading={documentLoading === "pdf"}>
                     PDF
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setDocumentPreviewOpen(true)}>
+                  <Button variant="secondary" size="sm" onClick={() => setDocumentPreviewOpen(true)}>
                     {t("common.actions")}
                   </Button>
                 </div>

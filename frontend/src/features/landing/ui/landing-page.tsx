@@ -31,7 +31,6 @@ import { landingContent, type LandingIcon } from "@/features/landing/content";
 import {
   HeroOrdersTrendChart,
   OrderFlowChart,
-  PayrollBarChart,
   ReturnDynamicsChart,
   StatusDistributionChart
 } from "@/features/landing/ui/dashboard-charts";
@@ -397,10 +396,11 @@ export function LandingPage(): JSX.Element {
             </Reveal>
             <div className="mt-[32px] grid gap-[12px] lg:grid-cols-[1.2fr_0.8fr]">
               <RevealStagger className="grid gap-[12px] md:grid-cols-2">
-                {landingContent.benefits.items.map((item) => {
+                {landingContent.benefits.items.map((item, index) => {
+                  const isLastOddItem = landingContent.benefits.items.length % 2 === 1 && index === landingContent.benefits.items.length - 1;
                   const Icon = iconMap[item.icon];
                   return (
-                    <RevealItem key={item.title}>
+                    <RevealItem key={item.title} className={isLastOddItem ? "md:col-span-2" : undefined}>
                       <InteractiveScale>
                         <article className="rounded-[14px] border border-neutral-200 bg-neutral-0/95 p-[16px] shadow-sm">
                           <div className="mb-[12px] inline-flex h-[32px] w-[32px] items-center justify-center rounded-[8px] bg-success/10 text-success">
@@ -466,14 +466,6 @@ export function LandingPage(): JSX.Element {
                           ))}
                         </ul>
                       </div>
-                      {index === 3 ? (
-                        <div className="mt-[12px] rounded-[12px] border border-neutral-200 bg-neutral-50/90 p-[10px]">
-                          <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-neutral-500">Сумма выплат по сотрудникам</p>
-                          <div className="h-[148px]">
-                            <PayrollBarChart />
-                          </div>
-                        </div>
-                      ) : null}
                     </article>
                   </InteractiveScale>
                 </RevealItem>
