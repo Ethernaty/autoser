@@ -122,6 +122,24 @@ class Settings(BaseSettings):
             raise ValueError("APP_ENV must be one of development, staging, production, test")
         return normalized
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, value: str) -> str:
+        if not isinstance(value, str):
+            raise ValueError("DATABASE_URL must be a string")
+
+        normalized = value.strip()
+        lowered = normalized.lower()
+
+        # Managed Postgres providers often expose postgres:// or postgresql://
+        # while this backend expects SQLAlchemy to use psycopg.
+        if lowered.startswith("postgres://"):
+            return "postgresql+psycopg://" + normalized[len("postgres://") :]
+        if lowered.startswith("postgresql://"):
+            return "postgresql+psycopg://" + normalized[len("postgresql://") :]
+
+        return normalized
+
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, value: str) -> str:
