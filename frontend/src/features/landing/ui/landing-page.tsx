@@ -32,6 +32,7 @@ import { landingContent, type LandingIcon } from "@/features/landing/content";
 import {
   HeroOrdersTrendChart,
   OrderFlowChart,
+  PayrollBarChart,
   ReturnDynamicsChart,
   StatusDistributionChart
 } from "@/features/landing/ui/dashboard-charts";
@@ -69,7 +70,7 @@ function SectionIntro({ title, subtitle, align = "left" }: { title: string; subt
   return (
     <div className={cn("space-y-[12px]", align === "center" ? "mx-auto max-w-[760px] text-center" : "max-w-[760px]")}>
       <h2 className="text-[26px] font-semibold leading-[34px] tracking-[-0.02em] text-neutral-900 md:text-[38px] md:leading-[46px]">{title}</h2>
-      {subtitle ? <p className="text-[15px] leading-[24px] text-neutral-600 md:text-[16px] md:leading-[26px]">{subtitle}</p> : null}
+      {subtitle ? <p className="hidden text-[15px] leading-[24px] text-neutral-600 sm:block md:text-[16px] md:leading-[26px]">{subtitle}</p> : null}
     </div>
   );
 }
@@ -223,7 +224,7 @@ export function LandingPage(): JSX.Element {
               <h1 className="max-w-[820px] text-[28px] font-semibold leading-[36px] tracking-[-0.03em] text-neutral-900 sm:text-[32px] sm:leading-[40px] md:text-[54px] md:leading-[60px]">
                 {landingContent.hero.title}
               </h1>
-              <p className="max-w-[700px] text-[16px] leading-[27px] text-neutral-600 md:text-[17px] md:leading-[28px]">{landingContent.hero.subtitle}</p>
+              <p className="hidden max-w-[700px] text-[16px] leading-[27px] text-neutral-600 sm:block md:text-[17px] md:leading-[28px]">{landingContent.hero.subtitle}</p>
 
               <div className="flex flex-col items-stretch gap-[10px] sm:flex-row sm:items-center sm:gap-[12px]">
                 <MotionLinkButton
@@ -244,8 +245,8 @@ export function LandingPage(): JSX.Element {
               </div>
 
               <RevealStagger className="grid gap-[10px] sm:grid-cols-2">
-                {landingContent.hero.proofPoints.map((point) => (
-                  <RevealItem key={point}>
+                {landingContent.hero.proofPoints.map((point, index) => (
+                  <RevealItem key={point} className={cn(index >= 2 ? "hidden sm:block" : "")}>
                     <InteractiveScale>
                       <li className="flex items-start gap-[8px] rounded-[10px] border border-neutral-200 bg-neutral-0/95 p-[12px] text-[13px] leading-[20px] text-neutral-700 shadow-sm sm:text-[14px]">
                         <CheckCircle2 className="mt-[2px] h-[16px] w-[16px] shrink-0 text-primary" aria-hidden />
@@ -340,17 +341,17 @@ export function LandingPage(): JSX.Element {
             <Reveal>
               <SectionIntro title={landingContent.pain.title} subtitle={landingContent.pain.subtitle} />
             </Reveal>
-            <RevealStagger className="mt-[32px] grid gap-[12px] md:grid-cols-2 xl:grid-cols-3">
-              {landingContent.pain.items.map((item) => {
+            <RevealStagger className="mt-[32px] grid items-stretch gap-[12px] md:grid-cols-2 xl:grid-cols-3">
+              {landingContent.pain.items.map((item, index) => {
                 const Icon = iconMap[item.icon];
                 return (
-                  <RevealItem key={item.title}>
-                    <InteractiveScale>
-                      <article className="rounded-[14px] border border-neutral-200 bg-neutral-0/95 p-[16px] shadow-sm">
+                  <RevealItem key={item.title} className={cn(index >= 3 ? "hidden md:block" : "", "h-full")}>
+                    <InteractiveScale className="h-full">
+                      <article className="h-full rounded-[14px] border border-neutral-200 bg-neutral-0/95 p-[16px] shadow-sm">
                         <div className="mb-[12px] inline-flex h-[32px] w-[32px] items-center justify-center rounded-[8px] bg-error/10 text-error">
                           <Icon className="h-[16px] w-[16px]" aria-hidden />
                         </div>
-                        <h3 className="text-[18px] font-semibold leading-[24px] text-neutral-900">{item.title}</h3>
+                        <h3 className="text-[18px] font-semibold leading-[24px] text-neutral-900 md:min-h-[48px]">{item.title}</h3>
                         <p className="mt-[8px] text-[15px] leading-[24px] text-neutral-600">{item.description}</p>
                       </article>
                     </InteractiveScale>
@@ -366,17 +367,17 @@ export function LandingPage(): JSX.Element {
             <Reveal>
               <SectionIntro title={landingContent.solution.title} subtitle={landingContent.solution.subtitle} />
             </Reveal>
-            <RevealStagger className="mt-[32px] grid gap-[12px] lg:grid-cols-3">
+            <RevealStagger className="mt-[32px] grid items-stretch gap-[12px] lg:grid-cols-3">
               {landingContent.solution.pillars.map((pillar) => {
                 const Icon = iconMap[pillar.icon];
                 return (
-                  <RevealItem key={pillar.title}>
-                    <InteractiveScale>
-                      <article className="rounded-[14px] border border-neutral-200 bg-neutral-0/95 p-[18px] shadow-sm">
+                  <RevealItem key={pillar.title} className="h-full">
+                    <InteractiveScale className="h-full">
+                      <article className="h-full rounded-[14px] border border-neutral-200 bg-neutral-0/95 p-[18px] shadow-sm">
                         <div className="mb-[16px] inline-flex h-[36px] w-[36px] items-center justify-center rounded-[10px] bg-primary/10 text-primary">
                           <Icon className="h-[18px] w-[18px]" aria-hidden />
                         </div>
-                        <h3 className="text-[19px] font-semibold leading-[26px] text-neutral-900">{pillar.title}</h3>
+                        <h3 className="text-[19px] font-semibold leading-[26px] text-neutral-900 md:min-h-[52px]">{pillar.title}</h3>
                         <p className="mt-[8px] text-[15px] leading-[24px] text-neutral-600">{pillar.description}</p>
                       </article>
                     </InteractiveScale>
@@ -387,22 +388,130 @@ export function LandingPage(): JSX.Element {
           </div>
         </section>
 
+        <section id="insights" className="border-y border-neutral-200 bg-neutral-50/85">
+          <div className="mx-auto w-full max-w-content px-[16px] py-[56px] sm:py-[64px] md:px-[24px] md:py-[96px]">
+            <Reveal>
+              <SectionIntro title="Живая картина сервиса" subtitle="Вместо длинных описаний: ключевые показатели и динамика в реальном времени." align="center" />
+            </Reveal>
+
+            <Reveal className="mt-[16px] sm:hidden">
+              <div className="rounded-[10px] border border-primary/20 bg-primary/10 px-[12px] py-[8px] text-[12px] font-semibold text-primary">
+                Показатели и графики обновляются в реальном времени
+              </div>
+            </Reveal>
+
+            <RevealStagger className="mt-[20px] hidden gap-[10px] sm:grid sm:grid-cols-3" staggerChildren={0.05}>
+              <RevealItem>
+                <div className="rounded-[10px] border border-success/20 bg-success/10 px-[12px] py-[8px] text-[12px] font-semibold text-success">Повторные визиты +18%</div>
+              </RevealItem>
+              <RevealItem>
+                <div className="rounded-[10px] border border-primary/20 bg-primary/10 px-[12px] py-[8px] text-[12px] font-semibold text-primary">Путь заказа: 5 этапов под контролем</div>
+              </RevealItem>
+              <RevealItem>
+                <div className="rounded-[10px] border border-warning/20 bg-warning/10 px-[12px] py-[8px] text-[12px] font-semibold text-warning">Выплаты считаются по факту работ</div>
+              </RevealItem>
+            </RevealStagger>
+
+            <RevealStagger className="mt-[14px] flex snap-x snap-mandatory gap-[10px] overflow-x-auto pb-[4px] sm:hidden" staggerChildren={0.05}>
+              <RevealItem className="min-w-[88%] snap-center">
+                <article className="rounded-[14px] border border-neutral-200 bg-neutral-0/95 p-[14px] shadow-sm">
+                  <div className="mb-[10px] flex items-center justify-between">
+                    <h3 className="text-[16px] font-semibold leading-[22px] text-neutral-900">Возврат клиентов</h3>
+                    <span className="text-[12px] font-semibold text-success">6 мес.</span>
+                  </div>
+                  <div className="h-[172px] rounded-[12px] border border-neutral-200 bg-neutral-50/90 p-[10px]">
+                    <ReturnDynamicsChart />
+                  </div>
+                </article>
+              </RevealItem>
+
+              <RevealItem className="min-w-[88%] snap-center">
+                <article className="rounded-[14px] border border-neutral-200 bg-neutral-0/95 p-[14px] shadow-sm">
+                  <div className="mb-[10px] flex items-center justify-between">
+                    <h3 className="text-[16px] font-semibold leading-[22px] text-neutral-900">Поток заказов</h3>
+                    <span className="text-[12px] font-semibold text-primary">Сейчас</span>
+                  </div>
+                  <div className="h-[172px] rounded-[12px] border border-neutral-200 bg-neutral-50/90 p-[10px]">
+                    <OrderFlowChart />
+                  </div>
+                </article>
+              </RevealItem>
+
+              <RevealItem className="min-w-[88%] snap-center">
+                <article className="rounded-[14px] border border-neutral-200 bg-neutral-0/95 p-[14px] shadow-sm">
+                  <div className="mb-[10px] flex items-center justify-between">
+                    <h3 className="text-[16px] font-semibold leading-[22px] text-neutral-900">Выработка команды</h3>
+                    <span className="text-[12px] font-semibold text-primary">Месяц</span>
+                  </div>
+                  <div className="h-[172px] rounded-[12px] border border-neutral-200 bg-neutral-50/90 p-[10px]">
+                    <PayrollBarChart />
+                  </div>
+                </article>
+              </RevealItem>
+            </RevealStagger>
+
+            <RevealStagger className="mt-[14px] hidden gap-[12px] sm:grid lg:grid-cols-3">
+              <RevealItem>
+                <InteractiveScale>
+                  <article className="rounded-[14px] border border-neutral-200 bg-neutral-0/95 p-[14px] shadow-sm">
+                    <div className="mb-[10px] flex items-center justify-between">
+                      <h3 className="text-[16px] font-semibold leading-[22px] text-neutral-900">Возврат клиентов</h3>
+                      <span className="text-[12px] font-semibold text-success">6 мес.</span>
+                    </div>
+                    <div className="h-[176px] rounded-[12px] border border-neutral-200 bg-neutral-50/90 p-[10px]">
+                      <ReturnDynamicsChart />
+                    </div>
+                  </article>
+                </InteractiveScale>
+              </RevealItem>
+
+              <RevealItem>
+                <InteractiveScale>
+                  <article className="rounded-[14px] border border-neutral-200 bg-neutral-0/95 p-[14px] shadow-sm">
+                    <div className="mb-[10px] flex items-center justify-between">
+                      <h3 className="text-[16px] font-semibold leading-[22px] text-neutral-900">Поток заказов</h3>
+                      <span className="text-[12px] font-semibold text-primary">Сейчас</span>
+                    </div>
+                    <div className="h-[176px] rounded-[12px] border border-neutral-200 bg-neutral-50/90 p-[10px]">
+                      <OrderFlowChart />
+                    </div>
+                  </article>
+                </InteractiveScale>
+              </RevealItem>
+
+              <RevealItem>
+                <InteractiveScale>
+                  <article className="rounded-[14px] border border-neutral-200 bg-neutral-0/95 p-[14px] shadow-sm">
+                    <div className="mb-[10px] flex items-center justify-between">
+                      <h3 className="text-[16px] font-semibold leading-[22px] text-neutral-900">Выработка команды</h3>
+                      <span className="text-[12px] font-semibold text-primary">Месяц</span>
+                    </div>
+                    <div className="h-[176px] rounded-[12px] border border-neutral-200 bg-neutral-50/90 p-[10px]">
+                      <PayrollBarChart />
+                    </div>
+                  </article>
+                </InteractiveScale>
+              </RevealItem>
+            </RevealStagger>
+          </div>
+        </section>
+
         <section id="features" className="bg-neutral-100/55">
           <div className="mx-auto w-full max-w-content px-[16px] py-[56px] sm:py-[64px] md:px-[24px] md:py-[96px]">
             <Reveal>
               <SectionIntro title={landingContent.features.title} />
             </Reveal>
-            <RevealStagger className="mt-[32px] grid gap-[12px] md:grid-cols-2 xl:grid-cols-3">
-              {landingContent.features.items.map((feature) => {
+            <RevealStagger className="mt-[32px] grid items-stretch gap-[12px] md:grid-cols-2 xl:grid-cols-3">
+              {landingContent.features.items.map((feature, index) => {
                 const Icon = iconMap[feature.icon];
                 return (
-                  <RevealItem key={feature.title}>
-                    <InteractiveScale>
-                      <article className="rounded-[14px] border border-neutral-200 bg-neutral-0/95 p-[16px] shadow-sm">
+                  <RevealItem key={feature.title} className={cn(index >= 4 ? "hidden md:block" : "", "h-full")}>
+                    <InteractiveScale className="h-full">
+                      <article className="h-full rounded-[14px] border border-neutral-200 bg-neutral-0/95 p-[16px] shadow-sm">
                         <div className="mb-[12px] inline-flex h-[32px] w-[32px] items-center justify-center rounded-[8px] bg-primary/10 text-primary">
                           <Icon className="h-[16px] w-[16px]" aria-hidden />
                         </div>
-                        <h3 className="text-[18px] font-semibold leading-[24px] text-neutral-900">{feature.title}</h3>
+                        <h3 className="text-[18px] font-semibold leading-[24px] text-neutral-900 md:min-h-[48px]">{feature.title}</h3>
                         <p className="mt-[8px] text-[15px] leading-[24px] text-neutral-600">{feature.description}</p>
                       </article>
                     </InteractiveScale>
@@ -419,8 +528,8 @@ export function LandingPage(): JSX.Element {
               <SectionIntro title={landingContent.workflow.title} />
             </Reveal>
             <RevealStagger className="mt-[32px] grid gap-[12px] md:grid-cols-2 xl:grid-cols-5">
-              {landingContent.workflow.steps.map((item) => (
-                <RevealItem key={item.step}>
+              {landingContent.workflow.steps.map((item, index) => (
+                <RevealItem key={item.step} className={cn(index >= 3 ? "hidden md:block" : "")}>
                   <InteractiveScale>
                     <li className="rounded-[14px] border border-neutral-200 bg-neutral-0/95 p-[16px] shadow-sm">
                       <span className="inline-flex h-[32px] min-w-[32px] items-center justify-center rounded-full border border-primary/20 bg-primary/10 px-[10px] text-[12px] font-semibold text-primary">{item.step}</span>
@@ -440,18 +549,18 @@ export function LandingPage(): JSX.Element {
               <SectionIntro title={landingContent.benefits.title} />
             </Reveal>
             <div className="mt-[32px] grid gap-[12px] lg:grid-cols-[1.2fr_0.8fr]">
-              <RevealStagger className="grid gap-[12px] md:grid-cols-2">
+              <RevealStagger className="grid items-stretch gap-[12px] md:grid-cols-2">
                 {landingContent.benefits.items.map((item, index) => {
                   const isLastOddItem = landingContent.benefits.items.length % 2 === 1 && index === landingContent.benefits.items.length - 1;
                   const Icon = iconMap[item.icon];
                   return (
-                    <RevealItem key={item.title} className={isLastOddItem ? "md:col-span-2" : undefined}>
-                      <InteractiveScale>
-                        <article className="rounded-[14px] border border-neutral-200 bg-neutral-0/95 p-[16px] shadow-sm">
+                    <RevealItem key={item.title} className={cn(isLastOddItem ? "md:col-span-2" : "", index >= 3 ? "hidden md:block" : "", "h-full")}>
+                      <InteractiveScale className="h-full">
+                        <article className="h-full rounded-[14px] border border-neutral-200 bg-neutral-0/95 p-[16px] shadow-sm">
                           <div className="mb-[12px] inline-flex h-[32px] w-[32px] items-center justify-center rounded-[8px] bg-success/10 text-success">
                             <Icon className="h-[16px] w-[16px]" aria-hidden />
                           </div>
-                          <h3 className="text-[18px] font-semibold leading-[24px] text-neutral-900">{item.title}</h3>
+                          <h3 className="text-[18px] font-semibold leading-[24px] text-neutral-900 md:min-h-[48px]">{item.title}</h3>
                           <p className="mt-[8px] text-[15px] leading-[24px] text-neutral-600">{item.description}</p>
                         </article>
                       </InteractiveScale>
@@ -491,7 +600,7 @@ export function LandingPage(): JSX.Element {
 
             <RevealStagger className="mt-[32px] grid gap-[12px] md:grid-cols-2">
               {landingContent.preview.cards.map((card, index) => (
-                <RevealItem key={card.title}>
+                <RevealItem key={card.title} className={cn(index >= 2 ? "hidden md:block" : "")}>
                   <InteractiveScale>
                     <article className="rounded-[14px] border border-neutral-200 bg-neutral-0/95 p-[16px] shadow-sm">
                       <div className="mb-[12px] flex items-center justify-between">
@@ -556,17 +665,17 @@ export function LandingPage(): JSX.Element {
             <Reveal>
               <SectionIntro title={landingContent.audience.title} />
             </Reveal>
-            <RevealStagger className="mt-[32px] grid gap-[12px] md:grid-cols-2">
-              {landingContent.audience.items.map((item) => {
+            <RevealStagger className="mt-[32px] grid items-stretch gap-[12px] md:grid-cols-2">
+              {landingContent.audience.items.map((item, index) => {
                 const Icon = iconMap[item.icon];
                 return (
-                  <RevealItem key={item.title}>
-                    <InteractiveScale>
-                      <article className="rounded-[14px] border border-neutral-200 bg-neutral-0/95 p-[16px] shadow-sm">
+                  <RevealItem key={item.title} className={cn(index >= 2 ? "hidden md:block" : "", "h-full")}>
+                    <InteractiveScale className="h-full">
+                      <article className="h-full rounded-[14px] border border-neutral-200 bg-neutral-0/95 p-[16px] shadow-sm">
                         <div className="mb-[12px] inline-flex h-[32px] w-[32px] items-center justify-center rounded-[8px] bg-primary/10 text-primary">
                           <Icon className="h-[16px] w-[16px]" aria-hidden />
                         </div>
-                        <h3 className="text-[18px] font-semibold leading-[24px] text-neutral-900">{item.title}</h3>
+                        <h3 className="text-[18px] font-semibold leading-[24px] text-neutral-900 md:min-h-[48px]">{item.title}</h3>
                         <p className="mt-[8px] text-[15px] leading-[24px] text-neutral-600">{item.description}</p>
                       </article>
                     </InteractiveScale>
@@ -583,8 +692,8 @@ export function LandingPage(): JSX.Element {
               <SectionIntro title={landingContent.faq.title} />
             </Reveal>
             <RevealStagger className="mt-[24px] space-y-[10px]" staggerChildren={0.05}>
-              {landingContent.faq.items.map((item) => (
-                <RevealItem key={item.question} y={14}>
+              {landingContent.faq.items.map((item, index) => (
+                <RevealItem key={item.question} y={14} className={cn(index >= 3 ? "hidden md:block" : "")}>
                   <motion.details className="group rounded-[12px] border border-neutral-200 bg-neutral-0/95 p-[14px] shadow-sm transition-colors hover:border-neutral-300" whileHover={reduceMotion ? undefined : { y: -1 }}>
                     <summary className="cursor-pointer list-none text-[16px] font-semibold leading-[24px] text-neutral-900">
                       <span className="inline-flex items-center gap-[10px]">
@@ -613,7 +722,7 @@ export function LandingPage(): JSX.Element {
               <h2 className="mt-[10px] text-[28px] font-semibold leading-[36px] tracking-[-0.02em] text-white sm:text-[32px] sm:leading-[40px] md:text-[44px] md:leading-[50px]">
                 {landingContent.finalCta.title}
               </h2>
-              <p className="mt-[14px] text-[15px] leading-[24px] text-slate-300 md:text-[16px] md:leading-[26px]">{landingContent.finalCta.subtitle}</p>
+              <p className="mt-[14px] hidden text-[15px] leading-[24px] text-slate-300 sm:block md:text-[16px] md:leading-[26px]">{landingContent.finalCta.subtitle}</p>
             </Reveal>
             <Reveal className="flex items-start" delay={0.06}>
               <MotionLinkButton href={ROUTES.login} className={secondaryCtaClass}>
@@ -629,17 +738,17 @@ export function LandingPage(): JSX.Element {
                   {landingContent.cta.label}
                   <ArrowRight className="ml-[8px] h-[16px] w-[16px] transition-transform duration-200 group-hover:translate-x-[2px]" aria-hidden />
                 </MotionLinkButton>
-                <span className="rounded-[8px] border border-[#2a4a73] bg-[#081428]/70 px-[10px] py-[8px] text-[12px] text-slate-300">
+                <span className="hidden rounded-[8px] border border-[#2a4a73] bg-[#081428]/70 px-[10px] py-[8px] text-[12px] text-slate-300 sm:inline-flex">
                   Ответим с шагами запуска и персональным демонстрационным сценарием
                 </span>
               </div>
 
               <RevealStagger className="mt-[18px] grid gap-[10px] md:grid-cols-3" staggerChildren={0.06}>
-                {landingContent.finalCta.contacts.map((contact) => {
+                {landingContent.finalCta.contacts.map((contact, index) => {
                   const iconByLabel = contact.label === "Email" ? Mail : contact.label === "Телефон" ? Phone : MessageCircle;
                   const Icon = iconByLabel;
                   return (
-                    <RevealItem key={contact.label}>
+                    <RevealItem key={contact.label} className={cn(index >= 2 ? "hidden sm:block" : "")}>
                       <InteractiveScale>
                         <article className="rounded-[12px] border border-[#2a4a73] bg-[#0b1b36]/70 p-[12px]">
                           <p className="flex items-center gap-[8px] text-[12px] uppercase tracking-[0.08em] text-slate-400">
@@ -656,7 +765,7 @@ export function LandingPage(): JSX.Element {
                 })}
               </RevealStagger>
 
-              <p className="mt-[12px] text-[12px] text-slate-400">{landingContent.finalCta.contactNote}</p>
+              <p className="mt-[12px] hidden text-[12px] text-slate-400 sm:block">{landingContent.finalCta.contactNote}</p>
             </Reveal>
           </div>
         </section>
