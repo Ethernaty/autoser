@@ -142,6 +142,26 @@ section[id] {
   scroll-margin-top: 96px;
 }
 
+/* Landing charts: keep tooltip interactions, but remove intrusive browser focus rings on tap/click. */
+.landing-chart-shell,
+.landing-chart-shell * {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.landing-chart-shell .recharts-wrapper:focus,
+.landing-chart-shell .recharts-wrapper:focus-visible,
+.landing-chart-shell .recharts-surface:focus,
+.landing-chart-shell .recharts-surface:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.landing-chart-shell :focus,
+.landing-chart-shell :focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

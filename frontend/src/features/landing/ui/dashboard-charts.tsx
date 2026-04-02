@@ -43,10 +43,10 @@ function ChartMountGuard({ children }: { children: React.ReactNode }): JSX.Eleme
   }, []);
 
   if (!mounted) {
-    return <div className="h-full w-full" />;
+    return <div className="landing-chart-shell h-full w-full" />;
   }
 
-  return <>{children}</>;
+  return <div className="landing-chart-shell h-full w-full">{children}</div>;
 }
 
 export function HeroOrdersTrendChart(): JSX.Element {
