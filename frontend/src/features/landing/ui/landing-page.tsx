@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -53,16 +54,22 @@ const iconMap: Record<LandingIcon, LucideIcon> = {
   fileText: FileText
 };
 
+const heroKpiVisuals: Array<{ icon: LucideIcon; hint: string }> = [
+  { icon: ClipboardList, hint: "Требуют внимания" },
+  { icon: Car, hint: "На текущем обслуживании" },
+  { icon: Clock3, hint: "Запланировано на сегодня" }
+];
+
 const primaryCtaClass =
-  "group inline-flex h-[44px] items-center justify-center rounded-[10px] border border-primary/20 bg-primary px-[20px] text-[14px] font-semibold text-primary-foreground shadow-sm shadow-primary/20 transition-colors duration-150 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35";
+  "group inline-flex h-[42px] items-center justify-center whitespace-nowrap rounded-[10px] border border-primary/20 bg-primary px-[14px] text-[13px] font-semibold text-primary-foreground shadow-sm shadow-primary/20 transition-colors duration-150 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 sm:h-[44px] sm:px-[20px] sm:text-[14px]";
 const secondaryCtaClass =
-  "inline-flex h-[44px] items-center justify-center rounded-[10px] border border-neutral-300 bg-neutral-0/90 px-[20px] text-[14px] font-semibold text-neutral-900 transition-colors duration-150 hover:border-neutral-400 hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35";
+  "inline-flex h-[42px] items-center justify-center whitespace-nowrap rounded-[10px] border border-neutral-300 bg-neutral-0/90 px-[14px] text-[13px] font-semibold text-neutral-900 transition-colors duration-150 hover:border-neutral-400 hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 sm:h-[44px] sm:px-[20px] sm:text-[14px]";
 
 function SectionIntro({ title, subtitle, align = "left" }: { title: string; subtitle?: string; align?: "left" | "center" }): JSX.Element {
   return (
     <div className={cn("space-y-[12px]", align === "center" ? "mx-auto max-w-[760px] text-center" : "max-w-[760px]")}>
-      <h2 className="text-[30px] font-semibold leading-[38px] tracking-[-0.02em] text-neutral-900 md:text-[38px] md:leading-[46px]">{title}</h2>
-      {subtitle ? <p className="text-[16px] leading-[26px] text-neutral-600">{subtitle}</p> : null}
+      <h2 className="text-[26px] font-semibold leading-[34px] tracking-[-0.02em] text-neutral-900 md:text-[38px] md:leading-[46px]">{title}</h2>
+      {subtitle ? <p className="text-[15px] leading-[24px] text-neutral-600 md:text-[16px] md:leading-[26px]">{subtitle}</p> : null}
     </div>
   );
 }
@@ -125,6 +132,17 @@ function AnimatedBackground(): JSX.Element {
 
 export function LandingPage(): JSX.Element {
   const reduceMotion = useReducedMotion();
+  const [todayLabel, setTodayLabel] = useState("Сегодня");
+
+  useEffect(() => {
+    const locale = navigator.language || "ru-RU";
+    const formattedDate = new Intl.DateTimeFormat(locale, {
+      day: "numeric",
+      month: "long"
+    }).format(new Date());
+    setTodayLabel(`Сегодня, ${formattedDate}`);
+  }, []);
+
   const handleAnchorNavigation = (event: React.MouseEvent<HTMLAnchorElement>, href: string): void => {
     if (!href.startsWith("#")) {
       return;
@@ -153,13 +171,15 @@ export function LandingPage(): JSX.Element {
       <AnimatedBackground />
 
       <header data-landing-header="true" className="sticky top-0 z-50 border-b border-neutral-200/80 bg-neutral-0/85 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-content items-center justify-between px-[16px] py-[12px] md:px-[24px]">
+        <div className="mx-auto flex w-full max-w-content items-center justify-between px-[12px] py-[10px] sm:px-[16px] sm:py-[12px] md:px-[24px]">
           <InteractiveScale>
-            <Link href="/" className="flex items-center gap-[10px]">
-              <span className="inline-flex h-[36px] w-[36px] items-center justify-center rounded-[10px] bg-primary text-[13px] font-bold text-primary-foreground shadow-sm shadow-primary/30">AS</span>
+            <Link href="/" className="flex items-center gap-[8px] sm:gap-[10px]">
+              <span className="inline-flex h-[34px] w-[34px] items-center justify-center rounded-[10px] bg-primary text-[12px] font-bold text-primary-foreground shadow-sm shadow-primary/30 sm:h-[36px] sm:w-[36px] sm:text-[13px]">
+                AS
+              </span>
               <div className="leading-none">
-                <p className="text-[15px] font-semibold text-neutral-900">{landingContent.brand.name}</p>
-                <p className="text-[12px] text-neutral-500">{landingContent.brand.tagline}</p>
+                <p className="text-[14px] font-semibold text-neutral-900 sm:text-[15px]">{landingContent.brand.name}</p>
+                <p className="hidden text-[12px] text-neutral-500 min-[360px]:block">{landingContent.brand.tagline}</p>
               </div>
             </Link>
           </InteractiveScale>
@@ -180,12 +200,14 @@ export function LandingPage(): JSX.Element {
 
           <div className="flex items-center gap-[8px]">
             <motion.div whileHover={reduceMotion ? undefined : { y: -1 }}>
-              <Link href={ROUTES.login} className="hidden text-[14px] font-semibold text-neutral-700 transition-colors hover:text-neutral-900 sm:inline-flex">
-                {landingContent.cta.secondaryLabel}
+              <Link href={ROUTES.login} className="inline-flex text-[13px] font-semibold text-neutral-700 transition-colors hover:text-neutral-900 sm:text-[14px]">
+                <span className="sm:hidden">Войти</span>
+                <span className="hidden sm:inline">{landingContent.cta.secondaryLabel}</span>
               </Link>
             </motion.div>
             <MotionLinkButton href={landingContent.cta.href} className={primaryCtaClass} onClick={getAnchorClickHandler(landingContent.cta.href)}>
-              {landingContent.cta.label}
+              <span className="sm:hidden">Демо</span>
+              <span className="hidden sm:inline">{landingContent.cta.label}</span>
             </MotionLinkButton>
           </div>
         </div>
@@ -193,20 +215,30 @@ export function LandingPage(): JSX.Element {
 
       <main className="relative z-10">
         <section className="relative">
-          <div className="mx-auto grid w-full max-w-content gap-[32px] px-[16px] pb-[72px] pt-[56px] md:px-[24px] md:pb-[96px] md:pt-[88px] lg:grid-cols-[1.04fr_0.96fr] lg:gap-[40px]">
+          <div className="mx-auto grid w-full max-w-content gap-[24px] px-[16px] pb-[56px] pt-[36px] sm:gap-[28px] sm:pt-[44px] md:px-[24px] md:pb-[96px] md:pt-[88px] lg:grid-cols-[1.04fr_0.96fr] lg:gap-[40px]">
             <Reveal className="space-y-[24px]" y={18}>
-              <span className="inline-flex items-center rounded-full border border-neutral-300 bg-neutral-0/90 px-[12px] py-[6px] text-[12px] font-semibold uppercase tracking-[0.08em] text-neutral-600 shadow-sm">
+              <span className="inline-flex items-center rounded-full border border-neutral-300 bg-neutral-0/90 px-[12px] py-[6px] text-[11px] font-semibold tracking-[0.04em] text-neutral-600 shadow-sm sm:text-[12px] sm:uppercase sm:tracking-[0.08em]">
                 {landingContent.brand.tagline}
               </span>
-              <h1 className="max-w-[800px] text-[36px] font-semibold leading-[44px] tracking-[-0.03em] text-neutral-900 md:text-[54px] md:leading-[60px]">{landingContent.hero.title}</h1>
-              <p className="max-w-[700px] text-[17px] leading-[28px] text-neutral-600">{landingContent.hero.subtitle}</p>
+              <h1 className="max-w-[820px] text-[28px] font-semibold leading-[36px] tracking-[-0.03em] text-neutral-900 sm:text-[32px] sm:leading-[40px] md:text-[54px] md:leading-[60px]">
+                {landingContent.hero.title}
+              </h1>
+              <p className="max-w-[700px] text-[16px] leading-[27px] text-neutral-600 md:text-[17px] md:leading-[28px]">{landingContent.hero.subtitle}</p>
 
-              <div className="flex flex-wrap items-center gap-[12px]">
-                <MotionLinkButton href={landingContent.cta.href} className={primaryCtaClass} onClick={getAnchorClickHandler(landingContent.cta.href)}>
+              <div className="flex flex-col items-stretch gap-[10px] sm:flex-row sm:items-center sm:gap-[12px]">
+                <MotionLinkButton
+                  href={landingContent.cta.href}
+                  className={cn(primaryCtaClass, "w-full sm:w-auto")}
+                  onClick={getAnchorClickHandler(landingContent.cta.href)}
+                >
                   {landingContent.cta.label}
                   <ArrowRight className="ml-[8px] h-[16px] w-[16px] transition-transform duration-200 group-hover:translate-x-[2px]" aria-hidden />
                 </MotionLinkButton>
-                <MotionLinkButton href="#preview" className={secondaryCtaClass} onClick={getAnchorClickHandler("#preview")}>
+                <MotionLinkButton
+                  href="#preview"
+                  className={cn(secondaryCtaClass, "w-full sm:w-auto")}
+                  onClick={getAnchorClickHandler("#preview")}
+                >
                   Посмотреть интерфейс
                 </MotionLinkButton>
               </div>
@@ -215,7 +247,7 @@ export function LandingPage(): JSX.Element {
                 {landingContent.hero.proofPoints.map((point) => (
                   <RevealItem key={point}>
                     <InteractiveScale>
-                      <li className="flex items-start gap-[8px] rounded-[10px] border border-neutral-200 bg-neutral-0/95 p-[12px] text-[14px] leading-[20px] text-neutral-700 shadow-sm">
+                      <li className="flex items-start gap-[8px] rounded-[10px] border border-neutral-200 bg-neutral-0/95 p-[12px] text-[13px] leading-[20px] text-neutral-700 shadow-sm sm:text-[14px]">
                         <CheckCircle2 className="mt-[2px] h-[16px] w-[16px] shrink-0 text-primary" aria-hidden />
                         <span>{point}</span>
                       </li>
@@ -230,7 +262,7 @@ export function LandingPage(): JSX.Element {
                 <div className="mb-[16px] flex items-center justify-between">
                   <div>
                     <p className="text-[15px] font-semibold text-neutral-900">Операционная панель сервиса</p>
-                    <p className="text-[13px] text-neutral-500">Сегодня, 30 марта</p>
+                    <p className="text-[13px] text-neutral-500">{todayLabel}</p>
                   </div>
                   <div className="flex items-center gap-[8px]">
                     <span className="hidden rounded-full border border-neutral-300 bg-neutral-50 px-[10px] py-[4px] text-[12px] font-medium text-neutral-600 sm:inline-flex">
@@ -240,15 +272,28 @@ export function LandingPage(): JSX.Element {
                   </div>
                 </div>
 
-                <RevealStagger className="grid gap-[10px] sm:grid-cols-3">
-                  {landingContent.hero.preview.kpis.map((kpi) => (
-                    <RevealItem key={kpi.label}>
-                      <article className="rounded-[12px] border border-neutral-200 bg-neutral-50/95 p-[12px] transition-colors duration-150 hover:border-neutral-300 hover:bg-neutral-0">
-                        <p className="text-[12px] leading-[16px] text-neutral-500">{kpi.label}</p>
-                        <p className="mt-[8px] text-[24px] font-semibold leading-[30px] text-neutral-900">{kpi.value}</p>
-                      </article>
-                    </RevealItem>
-                  ))}
+                <RevealStagger className="grid grid-cols-2 gap-[10px] sm:grid-cols-3">
+                  {landingContent.hero.preview.kpis.map((kpi, index) => {
+                    const visual = heroKpiVisuals[index];
+                    const KpiIcon = visual?.icon;
+
+                    return (
+                      <RevealItem key={kpi.label} className={cn(index === 2 ? "col-span-2 sm:col-span-1" : "")}>
+                        <article className="rounded-[12px] border border-neutral-200 bg-neutral-0 p-[12px] shadow-sm transition-all duration-150 hover:border-neutral-300 hover:shadow-[0_10px_24px_rgba(15,23,42,0.08)]">
+                          <div className="flex items-start justify-between gap-[8px]">
+                            <p className="text-[12px] leading-[16px] text-neutral-500">{kpi.label}</p>
+                            {KpiIcon ? (
+                              <span className="inline-flex h-[24px] w-[24px] shrink-0 items-center justify-center rounded-[7px] border border-primary/20 bg-primary/10 text-primary">
+                                <KpiIcon className="h-[13px] w-[13px]" aria-hidden />
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-[8px] text-[22px] font-semibold leading-[28px] tracking-[-0.01em] text-neutral-900 sm:text-[24px] sm:leading-[30px]">{kpi.value}</p>
+                          <p className="mt-[3px] text-[11px] leading-[15px] text-neutral-500">{visual?.hint ?? "Актуальные данные"}</p>
+                        </article>
+                      </RevealItem>
+                    );
+                  })}
                 </RevealStagger>
 
                 <div className="mt-[14px] rounded-[12px] border border-neutral-200 bg-neutral-50/90 p-[10px]">
@@ -291,7 +336,7 @@ export function LandingPage(): JSX.Element {
           </div>
         </section>
         <section id="pain" className="border-y border-neutral-200 bg-neutral-100/70">
-          <div className="mx-auto w-full max-w-content px-[16px] py-[72px] md:px-[24px] md:py-[96px]">
+          <div className="mx-auto w-full max-w-content px-[16px] py-[56px] sm:py-[64px] md:px-[24px] md:py-[96px]">
             <Reveal>
               <SectionIntro title={landingContent.pain.title} subtitle={landingContent.pain.subtitle} />
             </Reveal>
@@ -317,7 +362,7 @@ export function LandingPage(): JSX.Element {
         </section>
 
         <section id="solution">
-          <div className="mx-auto w-full max-w-content px-[16px] py-[72px] md:px-[24px] md:py-[96px]">
+          <div className="mx-auto w-full max-w-content px-[16px] py-[56px] sm:py-[64px] md:px-[24px] md:py-[96px]">
             <Reveal>
               <SectionIntro title={landingContent.solution.title} subtitle={landingContent.solution.subtitle} />
             </Reveal>
@@ -343,7 +388,7 @@ export function LandingPage(): JSX.Element {
         </section>
 
         <section id="features" className="bg-neutral-100/55">
-          <div className="mx-auto w-full max-w-content px-[16px] py-[72px] md:px-[24px] md:py-[96px]">
+          <div className="mx-auto w-full max-w-content px-[16px] py-[56px] sm:py-[64px] md:px-[24px] md:py-[96px]">
             <Reveal>
               <SectionIntro title={landingContent.features.title} />
             </Reveal>
@@ -369,7 +414,7 @@ export function LandingPage(): JSX.Element {
         </section>
 
         <section id="workflow">
-          <div className="mx-auto w-full max-w-content px-[16px] py-[72px] md:px-[24px] md:py-[96px]">
+          <div className="mx-auto w-full max-w-content px-[16px] py-[56px] sm:py-[64px] md:px-[24px] md:py-[96px]">
             <Reveal>
               <SectionIntro title={landingContent.workflow.title} />
             </Reveal>
@@ -390,7 +435,7 @@ export function LandingPage(): JSX.Element {
         </section>
 
         <section id="benefits" className="border-y border-neutral-200 bg-neutral-100/65">
-          <div className="mx-auto w-full max-w-content px-[16px] py-[72px] md:px-[24px] md:py-[96px]">
+          <div className="mx-auto w-full max-w-content px-[16px] py-[56px] sm:py-[64px] md:px-[24px] md:py-[96px]">
             <Reveal>
               <SectionIntro title={landingContent.benefits.title} />
             </Reveal>
@@ -439,7 +484,7 @@ export function LandingPage(): JSX.Element {
           </div>
         </section>
         <section id="preview">
-          <div className="mx-auto w-full max-w-content px-[16px] py-[72px] md:px-[24px] md:py-[96px]">
+          <div className="mx-auto w-full max-w-content px-[16px] py-[56px] sm:py-[64px] md:px-[24px] md:py-[96px]">
             <Reveal>
               <SectionIntro title={landingContent.preview.title} subtitle={landingContent.preview.subtitle} align="center" />
             </Reveal>
@@ -507,7 +552,7 @@ export function LandingPage(): JSX.Element {
         </section>
 
         <section id="audience" className="bg-neutral-100/65">
-          <div className="mx-auto w-full max-w-content px-[16px] py-[72px] md:px-[24px] md:py-[96px]">
+          <div className="mx-auto w-full max-w-content px-[16px] py-[56px] sm:py-[64px] md:px-[24px] md:py-[96px]">
             <Reveal>
               <SectionIntro title={landingContent.audience.title} />
             </Reveal>
@@ -562,11 +607,13 @@ export function LandingPage(): JSX.Element {
             transition={reduceMotion ? undefined : { duration: 9, repeat: Infinity, ease: "easeInOut" }}
           />
 
-          <div className="relative mx-auto grid w-full max-w-content gap-[24px] px-[16px] py-[72px] md:grid-cols-[1fr_auto] md:px-[24px] md:py-[88px]">
+          <div className="relative mx-auto grid w-full max-w-content gap-[18px] px-[16px] py-[56px] sm:py-[64px] md:grid-cols-[1fr_auto] md:px-[24px] md:py-[88px]">
             <Reveal className="max-w-[780px]">
               <p className="text-[13px] font-semibold uppercase tracking-[0.08em] text-slate-300">Финальный шаг</p>
-              <h2 className="mt-[10px] text-[34px] font-semibold leading-[42px] tracking-[-0.02em] text-white md:text-[44px] md:leading-[50px]">{landingContent.finalCta.title}</h2>
-              <p className="mt-[14px] text-[16px] leading-[26px] text-slate-300">{landingContent.finalCta.subtitle}</p>
+              <h2 className="mt-[10px] text-[28px] font-semibold leading-[36px] tracking-[-0.02em] text-white sm:text-[32px] sm:leading-[40px] md:text-[44px] md:leading-[50px]">
+                {landingContent.finalCta.title}
+              </h2>
+              <p className="mt-[14px] text-[15px] leading-[24px] text-slate-300 md:text-[16px] md:leading-[26px]">{landingContent.finalCta.subtitle}</p>
             </Reveal>
             <Reveal className="flex items-start" delay={0.06}>
               <MotionLinkButton href={ROUTES.login} className={secondaryCtaClass}>
@@ -575,7 +622,7 @@ export function LandingPage(): JSX.Element {
             </Reveal>
           </div>
 
-          <div className="relative mx-auto w-full max-w-content px-[16px] pb-[72px] md:px-[24px] md:pb-[88px]">
+          <div className="relative mx-auto w-full max-w-content px-[16px] pb-[56px] sm:pb-[64px] md:px-[24px] md:pb-[88px]">
             <Reveal className="rounded-[16px] border border-[#24456f] bg-[#0b1b36]/85 p-[18px] shadow-[0_18px_44px_rgba(2,6,23,0.42)] md:p-[22px]">
               <div className="flex flex-wrap items-center gap-[10px]">
                 <MotionLinkButton href="mailto:sales@autoservice-crm.example?subject=Запрос%20демо%20AutoService%20CRM" className={primaryCtaClass}>
