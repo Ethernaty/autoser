@@ -50,6 +50,11 @@ class Order(BaseModel, TenantScopedMixin):
     )
     order_number: Mapped[int] = mapped_column(Integer, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
+    mileage: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    estimated_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    diagnosis: Mapped[str | None] = mapped_column(Text, nullable=True)
+    intake_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     total_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     status: Mapped[OrderStatus] = mapped_column(
         SQLEnum(OrderStatus, name="order_status", native_enum=False),

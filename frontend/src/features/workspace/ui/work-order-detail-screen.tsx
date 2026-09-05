@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import type { Route } from "next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ROUTES } from "@/core/config/routes";
@@ -711,7 +712,7 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                     PDF
                   </Button>
                   <Button variant="secondary" size="sm" onClick={() => setDocumentPreviewOpen(true)}>
-                    {t("common.actions")}
+                    {t("work_order_detail.documents")}
                   </Button>
                 </div>
               }
@@ -741,16 +742,25 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                 <Card className="space-y-2 border-neutral-200 p-2">
                   <div className="space-y-1 rounded-md border border-neutral-100 bg-neutral-50/60 p-2">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">{t("common.client")}</p>
-                    <p className="text-sm font-semibold text-neutral-900">{workOrderQuery.data.client_name ?? t("common.not_set")}</p>
+                    <Link href={ROUTES.clientDetail(workOrderQuery.data.client_id) as Route} className="text-sm font-semibold text-primary hover:underline">
+                      {workOrderQuery.data.client_name ?? t("common.not_set")}
+                    </Link>
                   </div>
 
                   <div className="space-y-1 rounded-md border border-neutral-100 bg-neutral-50/60 p-2">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">{t("common.vehicle")}</p>
-                    <p className="text-sm font-medium text-neutral-900">
+                    <Link href={(workOrderQuery.data.vehicle_id ? ROUTES.vehicleDetail(workOrderQuery.data.vehicle_id) : ROUTES.vehicles) as Route} className="text-sm font-medium text-primary hover:underline">
                       {attachedVehicleQuery.data
                         ? `${attachedVehicleQuery.data.plate_number} - ${attachedVehicleQuery.data.make_model}`
                         : workOrderQuery.data.vehicle_make_model ?? t("common.not_set")}
-                    </p>
+                    </Link>
+                    <div className="grid grid-cols-2 gap-1 pt-1 text-xs text-neutral-600">
+                      <span>{t("work_order_intake.mileage")}: {workOrderQuery.data.mileage ?? t("common.not_set")}</span>
+                      <span>{t("work_order_intake.due_at")}: {workOrderQuery.data.due_at ? new Date(workOrderQuery.data.due_at).toLocaleString() : t("common.not_set")}</span>
+                      <span>{t("work_order_intake.estimated_amount")}: {workOrderQuery.data.estimated_amount != null ? formatMoney(String(workOrderQuery.data.estimated_amount)) : t("common.not_set")}</span>
+                    </div>
+                    {workOrderQuery.data.diagnosis ? <p className="text-xs text-neutral-700"><strong>{t("work_order_intake.diagnosis")}:</strong> {workOrderQuery.data.diagnosis}</p> : null}
+                    {workOrderQuery.data.intake_notes ? <p className="text-xs text-neutral-700"><strong>{t("work_order_intake.intake_notes")}:</strong> {workOrderQuery.data.intake_notes}</p> : null}
                   </div>
 
                   <div className="space-y-1 rounded-md border border-neutral-100 bg-neutral-50/60 p-2">
@@ -853,7 +863,7 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                           onClick={() => void runStatusTransition("cancelled")}
                           disabled={statusMutation.isPending || !canCancelOrder}
                         >
-                          {t("common.cancel")}
+                          {t("work_order_detail.cancel_order")}
                         </Button>
                       ) : null}
                       {workOrderQuery.data.status !== "cancelled" ? (
@@ -874,23 +884,6 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                     ) : null}
                   </div>
 
-                  <div className="space-y-1 rounded-md border border-neutral-100 bg-neutral-50/60 p-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">{t("work_order_detail.payments.title")}</p>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="space-y-0.5">
-                        <p className="text-xs text-neutral-600">
-                          {t("work_orders.kpi.paid")}: <span className="font-semibold text-neutral-900">{formatMoney(workOrderQuery.data.paid_amount)}</span>
-                        </p>
-                        <p className="text-xs text-neutral-600">
-                          {t("work_orders.kpi.remaining")}: <span className="font-semibold text-neutral-900">{formatMoney(workOrderQuery.data.remaining_amount)}</span>
-                        </p>
-                      </div>
-                      <Button variant="secondary" size="sm" onClick={() => setPaymentModalOpen(true)} disabled={!canAddPayment}>
-                        {t("work_order_detail.payments.add")}
-                      </Button>
-                    </div>
-                    {!canAddPayment ? <p className="text-xs text-neutral-600">{t("work_order_detail.error.payment_not_allowed_for_cancelled")}</p> : null}
-                  </div>
                 </Card>
               </div>
             </Section>

@@ -266,7 +266,15 @@ export type EmployeeUpdatePayload = {
   is_active?: boolean;
 };
 
-export type WorkOrderRecord = {
+export type IntakeDetails = {
+  mileage?: number | null;
+  due_at?: string | null;
+  estimated_amount?: number | string | null;
+  diagnosis?: string | null;
+  intake_notes?: string | null;
+};
+
+export type WorkOrderRecord = IntakeDetails & {
   id: string;
   order_number: number;
   tenant_id: string;
@@ -289,7 +297,7 @@ export type WorkOrderRecord = {
   updated_at: string;
 };
 
-export type WorkOrderCreatePayload = {
+export type WorkOrderCreatePayload = IntakeDetails & {
   client_id: string;
   vehicle_id: string;
   description: string;
@@ -299,7 +307,7 @@ export type WorkOrderCreatePayload = {
   assigned_employee_ids?: string[];
 };
 
-export type WorkOrderUpdatePayload = {
+export type WorkOrderUpdatePayload = IntakeDetails & {
   description?: string;
   total_amount?: number;
   status?: WorkOrderStatus;

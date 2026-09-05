@@ -102,6 +102,11 @@ def _to_work_order_response(
         assigned_employee_id=primary_assignee_id,
         assigned_user_id=primary_assignee_id,
         description=order.description,
+        mileage=order.mileage,
+        due_at=order.due_at,
+        estimated_amount=order.estimated_amount,
+        diagnosis=order.diagnosis,
+        intake_notes=order.intake_notes,
         total_amount=order.total_amount,
         price=order.total_amount,
         status=order.status,
@@ -164,6 +169,11 @@ async def create_work_order(
         total_amount=payload.effective_total_amount,
         status=payload.status,
         assigned_user_ids=payload.effective_assignee_ids,
+        mileage=payload.mileage,
+        due_at=payload.due_at,
+        estimated_amount=payload.estimated_amount,
+        diagnosis=payload.diagnosis,
+        intake_notes=payload.intake_notes,
     )
     financials = await service.get_financials(work_order_id=order.id)
     assignee_ids = await service.get_assignee_ids(work_order_id=order.id)
@@ -254,7 +264,18 @@ async def get_work_order(work_order_id: UUID, service: WorkOrderService = Depend
     order = await service.get_work_order(work_order_id=work_order_id)
     financials = await service.get_financials(work_order_id=work_order_id)
     assignee_ids = await service.get_assignee_ids(work_order_id=work_order_id)
-    return _to_work_order_response(order, financials, assigned_employee_ids=assignee_ids)
+    client_service = ClientService(tenant_id=service.tenant_id, actor_user_id=service.actor_user_id, actor_role=service.actor_role)
+    vehicle_service = VehicleService(tenant_id=service.tenant_id, actor_user_id=service.actor_user_id, actor_role=service.actor_role)
+    client_map, vehicle_map = await _build_order_party_maps(orders=[order], client_service=client_service, vehicle_service=vehicle_service)
+    vehicle = vehicle_map.get(order.vehicle_id) if order.vehicle_id else None
+    return _to_work_order_response(
+        order,
+        financials,
+        client_name=client_map.get(order.client_id),
+        vehicle_plate_number=getattr(vehicle, "plate_number", None),
+        vehicle_make_model=getattr(vehicle, "make_model", None),
+        assigned_employee_ids=assignee_ids,
+    )
 
 
 @router.patch("/{work_order_id}", response_model=WorkOrderResponse, dependencies=[Depends(RequirePermission("orders", "update"))])
@@ -277,6 +298,11 @@ async def update_work_order(
         vehicle_id=payload.vehicle_id,
         assigned_user_ids=payload.assigned_employee_ids,
         assigned_user_id=payload.effective_assignee_id,
+        mileage=payload.mileage,
+        due_at=payload.due_at,
+        estimated_amount=payload.estimated_amount,
+        diagnosis=payload.diagnosis,
+        intake_notes=payload.intake_notes,
     )
     financials = await service.get_financials(work_order_id=work_order_id)
     assignee_ids = await service.get_assignee_ids(work_order_id=work_order_id)

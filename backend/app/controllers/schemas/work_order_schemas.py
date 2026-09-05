@@ -4,14 +4,22 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from app.models.order import OrderStatus
 from app.models.order_line import OrderLineType
 from app.models.payment import PaymentMethod
 
 
-class WorkOrderCreateRequest(BaseModel):
+class IntakeDetails(BaseModel):
+    mileage: int | None = Field(default=None, ge=0, le=10000000)
+    due_at: AwareDatetime | None = None
+    estimated_amount: Decimal | None = Field(default=None, ge=0, le=9999999999)
+    diagnosis: str | None = Field(default=None, max_length=5000)
+    intake_notes: str | None = Field(default=None, max_length=5000)
+
+
+class WorkOrderCreateRequest(IntakeDetails):
     client_id: UUID
     vehicle_id: UUID
     description: str = Field(min_length=1, max_length=5000)
@@ -42,7 +50,7 @@ class WorkOrderCreateRequest(BaseModel):
         return [assignee_id] if assignee_id is not None else []
 
 
-class WorkOrderUpdateRequest(BaseModel):
+class WorkOrderUpdateRequest(IntakeDetails):
     description: str | None = Field(default=None, min_length=1, max_length=5000)
     total_amount: Decimal | None = Field(default=None, gt=0)
     price: Decimal | None = Field(default=None, gt=0)
@@ -144,7 +152,7 @@ class PaymentResponse(BaseModel):
     created_at: datetime
 
 
-class WorkOrderResponse(BaseModel):
+class WorkOrderResponse(IntakeDetails):
     id: UUID
     order_number: int
     tenant_id: UUID

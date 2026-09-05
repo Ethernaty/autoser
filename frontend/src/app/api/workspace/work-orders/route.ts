@@ -65,6 +65,11 @@ export async function POST(request: NextRequest) {
 
   const idempotencyKey = request.headers.get("Idempotency-Key") ?? undefined;
   let payload: {
+    mileage?: number | null;
+    due_at?: string | null;
+    estimated_amount?: number | string | null;
+    diagnosis?: string | null;
+    intake_notes?: string | null;
     client_id?: string;
     vehicle_id?: string;
     description?: string;
@@ -75,7 +80,12 @@ export async function POST(request: NextRequest) {
   };
   try {
     payload = (await request.json()) as {
-      client_id?: string;
+      mileage?: number | null;
+    due_at?: string | null;
+    estimated_amount?: number | string | null;
+    diagnosis?: string | null;
+    intake_notes?: string | null;
+    client_id?: string;
       vehicle_id?: string;
       description?: string;
       total_amount?: number;
@@ -99,6 +109,11 @@ export async function POST(request: NextRequest) {
     return createWorkOrder(
       workspaceContext,
       {
+        mileage: payload.mileage,
+        due_at: payload.due_at,
+        estimated_amount: payload.estimated_amount,
+        diagnosis: payload.diagnosis,
+        intake_notes: payload.intake_notes,
         client_id: payload.client_id!,
         vehicle_id: payload.vehicle_id!,
         description: payload.description!.trim(),

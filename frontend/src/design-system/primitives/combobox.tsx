@@ -27,6 +27,8 @@ type ComboboxProps = {
   size?: "sm" | "md";
   actionLabel?: string;
   onAction?: () => void;
+  onSearchChange?: (query: string) => void;
+  serverSearch?: boolean;
   minSearchChars?: number;
   minSearchText?: string;
   portal?: boolean;
@@ -46,6 +48,8 @@ export function Combobox({
   size = "md",
   actionLabel,
   onAction,
+  onSearchChange,
+  serverSearch = false,
   minSearchChars = 0,
   minSearchText,
   portal = true
@@ -128,6 +132,12 @@ export function Combobox({
     };
   }, [open, portal]);
 
+  useEffect(() => {
+    if (!onSearchChange) return;
+    const timer = setTimeout(() => onSearchChange(query), 250);
+    return () => clearTimeout(timer);
+  }, [query, onSearchChange]);
+
   const selected = useMemo(() => options.find((option) => option.value === value) ?? null, [options, value]);
 
   const filteredOptions = useMemo(() => {
@@ -136,7 +146,7 @@ export function Combobox({
       return [];
     }
 
-    if (!normalizedQuery) {
+    if (serverSearch || !normalizedQuery) {
       return options;
     }
 
@@ -145,7 +155,7 @@ export function Combobox({
       const haystack = [option.label, ...(option.keywords ?? [])].join(" ").toLowerCase();
       return haystack.includes(normalizedQuery);
     });
-  }, [minSearchChars, options, query]);
+  }, [minSearchChars, options, query, serverSearch]);
 
   const normalizedQuery = query.trim();
   const searchThresholdMet = minSearchChars <= 0 || normalizedQuery.length >= minSearchChars;

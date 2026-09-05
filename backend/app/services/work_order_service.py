@@ -141,6 +141,11 @@ class WorkOrderService(BaseService):
         status: OrderStatus = OrderStatus.NEW,
         assigned_user_id: UUID | None = None,
         assigned_user_ids: list[UUID] | None = None,
+        mileage: int | None = None,
+        due_at: datetime | None = None,
+        estimated_amount: Decimal | None = None,
+        diagnosis: str | None = None,
+        intake_notes: str | None = None,
     ) -> Order:
         normalized_description = self._normalize_description(description)
         normalized_total = self._normalize_total_amount_for_intake(total_amount)
@@ -173,6 +178,11 @@ class WorkOrderService(BaseService):
                 vehicle_id=vehicle_id,
                 assigned_user_id=normalized_assignee_ids[0] if normalized_assignee_ids else None,
                 description=normalized_description,
+                mileage=mileage,
+                due_at=due_at,
+                estimated_amount=estimated_amount,
+                diagnosis=diagnosis,
+                intake_notes=intake_notes,
                 total_amount=normalized_total,
                 status=normalized_status,
             )
@@ -209,6 +219,11 @@ class WorkOrderService(BaseService):
         vehicle_id: UUID | None = None,
         assigned_user_id: UUID | None = None,
         assigned_user_ids: list[UUID] | None = None,
+        mileage: int | None = None,
+        due_at: datetime | None = None,
+        estimated_amount: Decimal | None = None,
+        diagnosis: str | None = None,
+        intake_notes: str | None = None,
     ) -> Order:
         updates: dict[str, object] = {}
         if description is not None:
@@ -223,6 +238,16 @@ class WorkOrderService(BaseService):
             updates["assigned_user_ids"] = self._normalize_assignee_ids(assigned_user_ids)
         elif assigned_user_id is not None:
             updates["assigned_user_ids"] = self._normalize_assignee_ids([assigned_user_id])
+        if mileage is not None:
+            updates["mileage"] = mileage
+        if due_at is not None:
+            updates["due_at"] = due_at
+        if estimated_amount is not None:
+            updates["estimated_amount"] = self._normalize_money(estimated_amount, field="estimated_amount")
+        if diagnosis is not None:
+            updates["diagnosis"] = sanitize_text(diagnosis, max_length=5000) or None
+        if intake_notes is not None:
+            updates["intake_notes"] = sanitize_text(intake_notes, max_length=5000) or None
 
         if not updates:
             raise AppError(status_code=400, code="empty_update", message="No fields provided for update")
