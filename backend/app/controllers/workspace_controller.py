@@ -82,5 +82,6 @@ async def update_workspace_settings(
         timezone=payload.timezone,
         currency=payload.currency,
         working_hours_note=payload.working_hours_note,
+        logo_data_url=payload.logo_data_url,
     )
     return WorkspaceSettingsResponse.model_validate(settings)

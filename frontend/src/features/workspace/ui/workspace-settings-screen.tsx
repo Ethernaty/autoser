@@ -215,17 +215,9 @@ export function WorkspaceSettingsScreen(): JSX.Element {
     setCurrencySuggestion(null);
     setCurrencySuggestionSource(null);
     setCurrencyManuallyChanged(false);
+    setLogoFile(null);
+    setLogoPreviewUrl(settingsQuery.data.logo_data_url);
   }, [settingsQuery.data]);
-
-  useEffect(() => {
-    if (!logoFile) {
-      setLogoPreviewUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(logoFile);
-    setLogoPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [logoFile]);
 
   useEffect(() => {
     if (!timezonePickerOpen) {
@@ -383,14 +375,8 @@ export function WorkspaceSettingsScreen(): JSX.Element {
                   address: form.address.trim() || null,
                   timezone: form.timezone,
                   currency: form.currency.trim().toUpperCase(),
-                  working_hours_note: form.working_hours_note.trim() || null
-                },
-                {
-                  onSuccess: () => {
-                    if (logoFile) {
-                      setLogoNotice(t("settings.logo.notice_backend_required"));
-                    }
-                  }
+                  working_hours_note: form.working_hours_note.trim() || null,
+                  logo_data_url: logoPreviewUrl ?? ""
                 }
               );
             }}
@@ -439,8 +425,20 @@ export function WorkspaceSettingsScreen(): JSX.Element {
                         className="hidden"
                         onChange={(event) => {
                           const file = event.target.files?.[0] ?? null;
+                          if (file && file.size > 500_000) {
+                            setLogoNotice(t("settings.logo.error_too_large"));
+                            event.target.value = "";
+                            return;
+                          }
                           setLogoFile(file);
                           setLogoNotice(null);
+                          if (!file) {
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onload = () => setLogoPreviewUrl(typeof reader.result === "string" ? reader.result : null);
+                          reader.onerror = () => setLogoNotice(t("settings.logo.error_read"));
+                          reader.readAsDataURL(file);
                         }}
                       />
                       <Button
@@ -459,6 +457,7 @@ export function WorkspaceSettingsScreen(): JSX.Element {
                           variant="ghost"
                           onClick={() => {
                             setLogoFile(null);
+                            setLogoPreviewUrl(null);
                             if (fileInputRef.current) {
                               fileInputRef.current.value = "";
                             }

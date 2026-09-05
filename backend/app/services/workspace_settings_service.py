@@ -59,6 +59,7 @@ class WorkspaceSettingsService(BaseService):
         timezone: str | None = None,
         currency: str | None = None,
         working_hours_note: str | None = None,
+        logo_data_url: str | None = None,
     ) -> WorkspaceSettings:
         updates: dict[str, object] = {}
         if service_name is not None:
@@ -73,6 +74,8 @@ class WorkspaceSettingsService(BaseService):
             updates["currency"] = self._normalize_required(currency, field="currency", max_length=8).upper()
         if working_hours_note is not None:
             updates["working_hours_note"] = self._normalize_optional(working_hours_note, max_length=2000)
+        if logo_data_url is not None:
+            updates["logo_data_url"] = self._normalize_logo(logo_data_url)
 
         if not updates:
             raise AppError(status_code=400, code="empty_update", message="No fields provided for update")
@@ -110,3 +113,13 @@ class WorkspaceSettingsService(BaseService):
             return None
         normalized = sanitize_text(value, max_length=max_length)
         return normalized if normalized else None
+
+    @staticmethod
+    def _normalize_logo(value: str) -> str | None:
+        normalized = value.strip()
+        if not normalized:
+            return None
+        allowed = ("data:image/png;base64,", "data:image/jpeg;base64,", "data:image/svg+xml;base64,")
+        if not normalized.startswith(allowed) or len(normalized) > 700_000:
+            raise AppError(status_code=400, code="invalid_logo", message="Logo must be PNG, JPEG or SVG and no larger than 500 KB")
+        return normalized
