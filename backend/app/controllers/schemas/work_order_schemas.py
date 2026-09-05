@@ -152,6 +152,10 @@ class PaymentResponse(BaseModel):
     created_at: datetime
 
 
+class PaymentVoidRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=2000)
+
+
 class WorkOrderResponse(IntakeDetails):
     id: UUID
     order_number: int

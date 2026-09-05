@@ -390,3 +390,13 @@ export async function updateSupportTicketStatus(ticketId: string, status: Suppor
   const response = await apiClient.patch<SupportTicketRecord>(`/api/workspace/support/tickets/${ticketId}/status`, { status });
   return response.data;
 }
+
+export async function voidWorkOrderPayment(workOrderId: string, paymentId: string, reason: string): Promise<PaymentRecord> {
+  const response = await apiClient.post<PaymentRecord>(`/api/workspace/work-orders/${workOrderId}/payments/${paymentId}/void`, { reason });
+  return response.data;
+}
+
+export async function addSupportTicketMessage(ticketId: string, message: string): Promise<SupportTicketRecord> {
+  const response = await apiClient.post<SupportTicketRecord>(`/api/workspace/support/tickets/${ticketId}/messages`, { message });
+  return response.data;
+}

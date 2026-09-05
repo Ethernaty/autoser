@@ -36,7 +36,8 @@ import {
   fetchWorkOrderTimeline,
   mvpQueryKeys,
   setWorkOrderStatus,
-  updateWorkOrderLine
+  updateWorkOrderLine,
+  voidWorkOrderPayment
 } from "@/features/workspace/api/mvp-api";
 import type { WorkOrderOrderLine, WorkOrderPaymentState, WorkOrderStatus } from "@/features/workspace/types/mvp-types";
 import { useI18n } from "@/shared/i18n";
@@ -387,6 +388,8 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
   const [statusActionError, setStatusActionError] = useState<string | null>(null);
   const [assigneeActionError, setAssigneeActionError] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [voidPaymentId, setVoidPaymentId] = useState<string | null>(null);
+  const [voidReason, setVoidReason] = useState("");
   const [timelineCommentDraft, setTimelineCommentDraft] = useState("");
   const [timelineCommentError, setTimelineCommentError] = useState<string | null>(null);
   const [assigneePickerValue, setAssigneePickerValue] = useState("");
@@ -502,6 +505,17 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
   const addPaymentMutation = useMutation({
     mutationFn: createWorkOrderPayment.bind(null, workOrderId),
     onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrderPayments(workOrderId) });
+      void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrder(workOrderId) });
+      void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrderTimeline(workOrderId, 100, 0) });
+    }
+  });
+
+  const voidPaymentMutation = useMutation({
+    mutationFn: ({ paymentId, reason }: { paymentId: string; reason: string }) => voidWorkOrderPayment(workOrderId, paymentId, reason),
+    onSuccess: () => {
+      setVoidPaymentId(null);
+      setVoidReason("");
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrderPayments(workOrderId) });
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrder(workOrderId) });
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrderTimeline(workOrderId, 100, 0) });
@@ -981,13 +995,16 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                     <Card key={payment.id} className="border-neutral-200 p-2">
                       <div className="flex flex-wrap items-start justify-between gap-1">
                         <div>
-                          <p className="text-sm font-medium text-neutral-900">{formatMoney(payment.amount)}</p>
+                          <p className={cn("text-sm font-medium", payment.voided_at ? "text-neutral-400 line-through" : "text-neutral-900")}>{formatMoney(payment.amount)}</p>
                           <p className="text-xs text-neutral-600">
                             {t(`work_order_detail.payment_method.${payment.method}`)} - {new Date(payment.paid_at).toLocaleString()}
                           </p>
                           {payment.comment ? <p className="text-xs text-neutral-600">{payment.comment}</p> : null}
                         </div>
-                        <Badge tone="neutral">{t("work_order_detail.payment")}</Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge tone={payment.voided_at ? "warning" : "neutral"}>{payment.voided_at ? t("work_order_detail.payments.voided") : t("work_order_detail.payment")}</Badge>
+                          {!payment.voided_at ? <Button size="sm" variant="ghost" onClick={() => setVoidPaymentId(payment.id)}>{t("work_order_detail.payments.void")}</Button> : null}
+                        </div>
                       </div>
                     </Card>
                   ))}
@@ -1428,6 +1445,18 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
           </FormField>
           {paymentError ? <p className="text-sm text-error">{paymentError}</p> : null}
         </div>
+      </Modal>
+      <Modal
+        open={Boolean(voidPaymentId)}
+        onOpenChange={(open) => { if (!open) { setVoidPaymentId(null); setVoidReason(""); } }}
+        title={t("work_order_detail.payments.void")}
+        description={t("work_order_detail.payments.void_description")}
+        footer={<FormActions><Button variant="secondary" onClick={() => setVoidPaymentId(null)}>{t("common.cancel")}</Button><Button variant="danger" disabled={!voidReason.trim()} loading={voidPaymentMutation.isPending} onClick={() => { if (voidPaymentId) voidPaymentMutation.mutate({ paymentId: voidPaymentId, reason: voidReason.trim() }); }}>{t("work_order_detail.payments.void_confirm")}</Button></FormActions>}
+      >
+        <FormField id="void-payment-reason" label={t("work_order_detail.payments.void_reason")} required>
+          <Textarea id="void-payment-reason" value={voidReason} onChange={(event) => setVoidReason(event.target.value)} />
+        </FormField>
+        {voidPaymentMutation.error ? <p className="mt-2 text-sm text-error">{voidPaymentMutation.error.message}</p> : null}
       </Modal>
     </PageLayout>
   );

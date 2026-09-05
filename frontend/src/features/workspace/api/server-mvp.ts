@@ -629,6 +629,21 @@ export async function createWorkOrderPayment(
   return payment;
 }
 
+export async function voidWorkOrderPayment(
+  context: WorkspaceContext,
+  workOrderId: string,
+  paymentId: string,
+  reason: string
+): Promise<PaymentRecord> {
+  const payment = await backendRequest<PaymentRecord>(`/work-orders/${workOrderId}/payments/${paymentId}/void`, {
+    method: "POST",
+    headers: authHeader(context),
+    body: JSON.stringify({ reason })
+  });
+  assertTenantScope(context, payment.tenant_id, "payment");
+  return payment;
+}
+
 export async function listSupportTickets(
   context: WorkspaceContext,
   params: {
@@ -684,6 +699,19 @@ export async function patchSupportTicketStatus(
     method: "PATCH",
     headers: authHeader(context),
     body: JSON.stringify({ status })
+  });
+  return assertTenantScopedItem(context, ticket, "support_ticket");
+}
+
+export async function addSupportTicketMessage(
+  context: WorkspaceContext,
+  ticketId: string,
+  message: string
+): Promise<SupportTicketRecord> {
+  const ticket = await backendRequest<SupportTicketRecord>(`/support/tickets/${ticketId}/messages`, {
+    method: "POST",
+    headers: authHeader(context),
+    body: JSON.stringify({ message })
   });
   return assertTenantScopedItem(context, ticket, "support_ticket");
 }

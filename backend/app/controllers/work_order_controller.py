@@ -14,6 +14,7 @@ from app.controllers.schemas.work_order_schemas import (
     OrderLineUpdateRequest,
     PaymentCreateRequest,
     PaymentResponse,
+    PaymentVoidRequest,
     WorkOrderTimelineEventResponse,
     WorkOrderTimelineCommentRequest,
     WorkOrderAssignRequest,
@@ -518,6 +519,21 @@ async def create_work_order_payment(
         comment=payload.comment,
         external_ref=payload.external_ref,
     )
+    return PaymentResponse.model_validate(payment)
+
+
+@router.post(
+    "/{work_order_id}/payments/{payment_id}/void",
+    response_model=PaymentResponse,
+    dependencies=[Depends(RequirePermission("payments", "create"))],
+)
+async def void_work_order_payment(
+    work_order_id: UUID,
+    payment_id: UUID,
+    payload: PaymentVoidRequest,
+    service: WorkOrderService = Depends(get_work_order_service),
+) -> PaymentResponse:
+    payment = await service.void_payment(work_order_id=work_order_id, payment_id=payment_id, reason=payload.reason)
     return PaymentResponse.model_validate(payment)
 
 

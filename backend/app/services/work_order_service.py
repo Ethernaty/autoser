@@ -40,6 +40,7 @@ _WORK_ORDER_TIMELINE_ACTIONS = {
     "work_order_total_amount_changed",
     "work_order_lines_changed",
     "work_order_payment_recorded",
+    "work_order_payment_voided",
     "work_order_cancelled",
     "work_order_assignee_changed",
     "work_order_vehicle_changed",
@@ -775,9 +776,39 @@ class WorkOrderService(BaseService):
         def read_op(db: Session) -> list[Payment]:
             self._assert_order_exists(db=db, work_order_id=work_order_id)
             repo = PaymentRepository(db=db, tenant_id=self.tenant_id)
-            return repo.list_for_order(order_id=work_order_id)
+            return repo.list_for_order(order_id=work_order_id, include_voided=True)
 
         return await self.execute_read(read_op)
+
+    async def void_payment(self, *, work_order_id: UUID, payment_id: UUID, reason: str) -> Payment:
+        normalized_reason = self._normalize_optional_comment(reason)
+        if not normalized_reason:
+            raise AppError(status_code=400, code="void_reason_required", message="A reason is required")
+
+        def write_op(db: Session) -> Payment:
+            order = self._assert_order_exists(db=db, work_order_id=work_order_id)
+            repo = PaymentRepository(db=db, tenant_id=self.tenant_id)
+            payment = repo.get_by_id(payment_id)
+            if payment is None or payment.order_id != work_order_id:
+                raise AppError(status_code=404, code="payment_not_found", message="Payment not found")
+            if payment.voided_at is not None:
+                raise AppError(status_code=409, code="payment_already_voided", message="Payment is already voided")
+            payment.voided_at = datetime.now(UTC)
+            db.flush()
+            financials = self._financials_in_tx(db=db, order=order)
+            self._write_work_order_event(
+                db=db,
+                work_order_id=work_order_id,
+                action="work_order_payment_voided",
+                message=f"Payment voided: {payment.amount}. Reason: {normalized_reason}",
+                metadata={"payment_id": str(payment.id), "amount": str(payment.amount), "reason": normalized_reason},
+            )
+            if order.status == OrderStatus.COMPLETED_PAID and financials.remaining_amount > Decimal("0.00"):
+                OrderRepository(db=db, tenant_id=self.tenant_id).update(work_order_id, status=OrderStatus.COMPLETED_UNPAID)
+            db.refresh(payment)
+            return payment
+
+        return await self.execute_write(write_op, idempotent=False)
 
     async def get_assignee_ids(self, *, work_order_id: UUID) -> list[UUID]:
         mapping = await self.get_assignee_ids_map(work_order_ids=[work_order_id])
