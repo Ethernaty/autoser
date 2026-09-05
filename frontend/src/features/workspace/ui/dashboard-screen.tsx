@@ -230,8 +230,8 @@ export function DashboardScreen(): JSX.Element {
   });
 
   const employeesQuery = useQuery({
-    queryKey: mvpQueryKeys.employees("", "all", 100, 0),
-    queryFn: () => fetchEmployees({ q: "", role: "all", limit: 100, offset: 0 })
+    queryKey: mvpQueryKeys.employees("", "", 100, 0),
+    queryFn: () => fetchEmployees({ q: "", limit: 100, offset: 0 })
   });
 
   const workOrdersQuery = useQuery({
