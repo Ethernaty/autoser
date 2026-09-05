@@ -23,15 +23,12 @@ type CreateWorkOrderForm = {
   vehicle_id: string;
   assigned_employee_id: string;
   description: string;
-  total_amount: string;
 };
 
 type NewClientForm = {
   name: string;
   phone: string;
   email: string;
-  source: string;
-  comment: string;
 };
 
 type NewVehicleForm = {
@@ -39,7 +36,6 @@ type NewVehicleForm = {
   make_model: string;
   year: string;
   vin: string;
-  comment: string;
 };
 
 function defaultWorkOrderForm(): CreateWorkOrderForm {
@@ -47,8 +43,7 @@ function defaultWorkOrderForm(): CreateWorkOrderForm {
     client_id: "",
     vehicle_id: "",
     assigned_employee_id: "",
-    description: "",
-    total_amount: ""
+    description: ""
   };
 }
 
@@ -56,9 +51,7 @@ function defaultNewClientForm(): NewClientForm {
   return {
     name: "",
     phone: "",
-    email: "",
-    source: "",
-    comment: ""
+    email: ""
   };
 }
 
@@ -67,9 +60,25 @@ function defaultNewVehicleForm(): NewVehicleForm {
     plate_number: "",
     make_model: "",
     year: "",
-    vin: "",
-    comment: ""
+    vin: ""
   };
+}
+
+const KNOWN_EMPLOYEE_ROLES = ["owner", "admin", "manager", "employee"] as const;
+type KnownEmployeeRole = (typeof KNOWN_EMPLOYEE_ROLES)[number];
+
+function normalizeRoleValue(rawRole: string | null | undefined): KnownEmployeeRole | null {
+  if (!rawRole) return null;
+  const normalized = rawRole.trim().toLowerCase().replace(/[^a-z_]/g, "");
+  return (KNOWN_EMPLOYEE_ROLES as readonly string[]).includes(normalized) ? (normalized as KnownEmployeeRole) : null;
+}
+
+function employeeRoleLabel(rawRole: string | null | undefined, t: (key: string) => string): string {
+  const normalized = normalizeRoleValue(rawRole);
+  if (normalized) {
+    return t(`employees.role.${normalized}`);
+  }
+  return (rawRole ?? "").replace(/[,\s]+$/g, "").trim() || t("employees.role.employee");
 }
 
 export function WorkOrderIntakeScreen(): JSX.Element {
@@ -171,8 +180,6 @@ export function WorkOrderIntakeScreen(): JSX.Element {
     const name = newClientForm.name.trim();
     const phone = normalizePhoneForSubmit(newClientForm.phone);
     const email = newClientForm.email.trim();
-    const source = newClientForm.source.trim();
-    const comment = newClientForm.comment.trim();
 
     if (!name || !phone) {
       setFormError(t("work_order_intake.error.client_required"));
@@ -196,9 +203,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
     const createdClient = await createClientMutation.mutateAsync({
       name,
       phone,
-      email: email || null,
-      source: source || null,
-      comment: comment || null
+      email: email || null
     });
 
     setWorkOrderForm((prev) => ({
@@ -226,7 +231,6 @@ export function WorkOrderIntakeScreen(): JSX.Element {
 
     const year = newVehicleForm.year.trim();
     const vin = normalizeVinForSubmit(newVehicleForm.vin);
-    const comment = newVehicleForm.comment.trim();
 
     try {
       const plateLookup = await fetchVehicles({ q: plateNumber, limit: 50, offset: 0 });
@@ -258,8 +262,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
       plate_number: plateNumber,
       make_model: makeModel,
       year: year ? Number(year) : null,
-      vin,
-      comment: comment || null
+      vin
     });
 
     setWorkOrderForm((prev) => ({
@@ -277,18 +280,11 @@ export function WorkOrderIntakeScreen(): JSX.Element {
       return;
     }
 
-    const total = Number(workOrderForm.total_amount);
-    if (!Number.isFinite(total) || total <= 0) {
-      setFormError(t("work_order_intake.error.total_amount"));
-      return;
-    }
-
     setFormError(null);
     const created = await createWorkOrderMutation.mutateAsync({
       client_id: workOrderForm.client_id,
       vehicle_id: workOrderForm.vehicle_id,
       description: workOrderForm.description.trim(),
-      total_amount: total,
       assigned_employee_id: workOrderForm.assigned_employee_id || null,
       status: "new"
     });
@@ -299,6 +295,11 @@ export function WorkOrderIntakeScreen(): JSX.Element {
   const isBusy = createClientMutation.isPending || createVehicleMutation.isPending || createWorkOrderMutation.isPending;
   const isVehicleStepActive = Boolean(workOrderForm.client_id);
   const isWorkOrderStepActive = Boolean(workOrderForm.vehicle_id);
+  const canSubmitWorkOrder =
+    Boolean(workOrderForm.client_id) &&
+    Boolean(workOrderForm.vehicle_id) &&
+    Boolean(workOrderForm.description.trim()) &&
+    !isBusy;
 
   return (
     <PageLayout
@@ -391,22 +392,6 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                     type="email"
                     value={newClientForm.email}
                     onChange={(event) => setNewClientForm((prev) => ({ ...prev, email: event.target.value }))}
-                  />
-                </FormField>
-                <FormField id="new-client-source" label={t("clients.form.source")}>
-                  <Input
-                    fullHeight="sm"
-                    id="new-client-source"
-                    value={newClientForm.source}
-                    onChange={(event) => setNewClientForm((prev) => ({ ...prev, source: event.target.value }))}
-                  />
-                </FormField>
-                <FormField id="new-client-comment" label={t("common.comment")}>
-                  <Input
-                    fullHeight="sm"
-                    id="new-client-comment"
-                    value={newClientForm.comment}
-                    onChange={(event) => setNewClientForm((prev) => ({ ...prev, comment: event.target.value }))}
                   />
                 </FormField>
               </div>
@@ -505,14 +490,6 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                   />
                 </FormField>
               </div>
-              <FormField id="new-vehicle-comment" label={t("common.comment")}>
-                <Input
-                  fullHeight="sm"
-                  id="new-vehicle-comment"
-                  value={newVehicleForm.comment}
-                  onChange={(event) => setNewVehicleForm((prev) => ({ ...prev, comment: event.target.value }))}
-                />
-              </FormField>
               <div className="flex justify-end pt-0.5">
                 <Button type="button" size="sm" variant="secondary" loading={createVehicleMutation.isPending} onClick={() => void onCreateVehicleInline()}>
                   {t("work_order_intake.create_vehicle_continue")}
@@ -548,21 +525,13 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                   <option value="">{t("work_orders.unassigned")}</option>
                   {(employeesQuery.data?.items ?? []).map((employee) => (
                     <option key={employee.employee_id} value={employee.employee_id}>
-                      {(employee.full_name?.trim() || employee.email)} ({employee.role})
+                      {(employee.full_name?.trim() || employee.email).replace(/[,\s]+$/g, "")} (
+                      {employeeRoleLabel(employee.role, t)})
                     </option>
                   ))}
                 </Select>
               </FormField>
 
-              <FormField id="total_amount" label={t("work_order_intake.total_amount_label")} required className="md:col-span-2 md:max-w-[280px]">
-                <Input
-                  fullHeight="sm"
-                  id="total_amount"
-                  value={workOrderForm.total_amount}
-                  onChange={(event) => setWorkOrderForm((prev) => ({ ...prev, total_amount: event.target.value }))}
-                  placeholder="0.00"
-                />
-              </FormField>
               <FormField id="description" label={t("work_order_intake.description_label")} required className="md:col-span-2">
                 <Textarea
                   className="min-h-20"
@@ -582,12 +551,18 @@ export function WorkOrderIntakeScreen(): JSX.Element {
         {createVehicleMutation.error ? <p className="text-xs text-error">{createVehicleMutation.error.message}</p> : null}
         {createWorkOrderMutation.error ? <p className="text-xs text-error">{createWorkOrderMutation.error.message}</p> : null}
 
-        <div className="sticky bottom-0 z-10 -mx-1 mt-1 bg-gradient-to-t from-neutral-100/95 via-neutral-100/92 to-transparent px-1 pt-3">
+        <div className="sticky bottom-0 z-10 -mx-1 mt-1 bg-gradient-to-t from-neutral-100/95 via-neutral-100/92 to-transparent px-1 pt-3 pb-[max(8px,env(safe-area-inset-bottom))]">
           <div className="flex flex-wrap items-center justify-end gap-2 border-t border-neutral-200 py-2">
             <Button type="button" size="sm" variant="secondary" onClick={() => router.push(ROUTES.workOrders as Route)}>
               {t("common.cancel")}
             </Button>
-            <Button type="submit" size="sm" variant="primary" loading={createWorkOrderMutation.isPending} disabled={isBusy}>
+            <Button
+              type="submit"
+              size="sm"
+              variant="primary"
+              loading={createWorkOrderMutation.isPending}
+              disabled={!canSubmitWorkOrder}
+            >
               {t("work_order_intake.submit")}
             </Button>
           </div>

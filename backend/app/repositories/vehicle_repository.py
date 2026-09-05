@@ -72,6 +72,27 @@ class VehicleRepository(BaseRepositoryTenantScoped[Vehicle]):
             )
         return int(self.db.execute(stmt).scalar_one())
 
+    def count_by_client_ids(self, *, client_ids: list[UUID], include_archived: bool = False) -> dict[UUID, int]:
+        if not client_ids:
+            return {}
+
+        stmt = (
+            select(Vehicle.client_id, func.count(Vehicle.id))
+            .where(
+                Vehicle.tenant_id == self.tenant_id,
+                Vehicle.client_id.in_(client_ids),
+            )
+            .group_by(Vehicle.client_id)
+        )
+        if not include_archived:
+            stmt = stmt.where(Vehicle.archived_at.is_(None))
+
+        rows = self.db.execute(stmt).all()
+        result: dict[UUID, int] = {}
+        for client_id, count in rows:
+            result[client_id] = int(count or 0)
+        return result
+
     def update(self, vehicle_id: UUID, **updates: object) -> Vehicle | None:
         vehicle = self.get_by_id(vehicle_id)
         if vehicle is None:

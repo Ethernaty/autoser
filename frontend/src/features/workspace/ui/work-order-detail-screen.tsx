@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -41,6 +41,23 @@ import type { WorkOrderOrderLine, WorkOrderPaymentState, WorkOrderStatus } from 
 import { useI18n } from "@/shared/i18n";
 
 const EMPLOYEE_LOOKUP_LIMIT = 50;
+const KNOWN_EMPLOYEE_ROLES = ["owner", "admin", "manager", "employee"] as const;
+type KnownEmployeeRole = (typeof KNOWN_EMPLOYEE_ROLES)[number];
+
+function normalizeRoleValue(rawRole: string | null | undefined): KnownEmployeeRole | null {
+  if (!rawRole) return null;
+  const normalized = rawRole.trim().toLowerCase().replace(/[^a-z_]/g, "");
+  return (KNOWN_EMPLOYEE_ROLES as readonly string[]).includes(normalized) ? (normalized as KnownEmployeeRole) : null;
+}
+
+function employeeRoleLabel(rawRole: string | null | undefined, t: (key: string) => string): string | null {
+  const normalized = normalizeRoleValue(rawRole);
+  if (normalized) {
+    return t(`employees.role.${normalized}`);
+  }
+  const fallback = (rawRole ?? "").replace(/[,\s]+$/g, "").trim();
+  return fallback || null;
+}
 
 function formatMoney(value: string): string {
   const parsed = Number(value);
@@ -326,7 +343,7 @@ function DetailMetric({
   return (
     <Card className={cn("border-neutral-200 bg-neutral-0 p-2", accent && "border-primary/20 bg-primary/5")}>
       <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">{label}</p>
-      <div className="mt-1 text-2xl font-semibold leading-none text-neutral-950">{value}</div>
+      <div className="mt-1 text-2xl font-semibold leading-none text-neutral-900">{value}</div>
     </Card>
   );
 }
@@ -367,9 +384,11 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
   const [editLineError, setEditLineError] = useState<string | null>(null);
   const [lineActionError, setLineActionError] = useState<string | null>(null);
   const [statusActionError, setStatusActionError] = useState<string | null>(null);
+  const [assigneeActionError, setAssigneeActionError] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [timelineCommentDraft, setTimelineCommentDraft] = useState("");
   const [timelineCommentError, setTimelineCommentError] = useState<string | null>(null);
+  const [assigneePickerValue, setAssigneePickerValue] = useState("");
 
   const workOrderQuery = useQuery({
     queryKey: mvpQueryKeys.workOrder(workOrderId),
@@ -388,7 +407,7 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
 
   const timelineQuery = useQuery({
     queryKey: mvpQueryKeys.workOrderTimeline(workOrderId, 100, 0),
-    queryFn: () => fetchWorkOrderTimeline(workOrderId, { limit: 100, offset: 0 })
+    queryFn: () => fetchWorkOrderTimeline(workOrderId, { limit: 50, offset: 0 })
   });
 
   const employeesQuery = useQuery({
@@ -399,11 +418,13 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
   const employeeById = useMemo(() => {
     const map = new Map<string, string>();
     (employeesQuery.data?.items ?? []).forEach((employee) => {
-      const label = employee.full_name?.trim() ? `${employee.full_name} (${employee.role})` : `${employee.email} (${employee.role})`;
+      const displayName = (employee.full_name?.trim() || employee.email).replace(/[,\s]+$/g, "");
+      const roleLabel = employeeRoleLabel(employee.role, t);
+      const label = roleLabel ? `${displayName} (${roleLabel})` : displayName;
       map.set(employee.employee_id, label);
     });
     return map;
-  }, [employeesQuery.data?.items]);
+  }, [employeesQuery.data?.items, t]);
 
   const attachedVehicleQuery = useQuery({
     queryKey: mvpQueryKeys.vehicle(workOrderQuery.data?.vehicle_id ?? ""),
@@ -430,7 +451,7 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
   });
 
   const assignMutation = useMutation({
-    mutationFn: (employeeId: string | null) => assignWorkOrder(workOrderId, employeeId),
+    mutationFn: (employeeIds: string[]) => assignWorkOrder(workOrderId, employeeIds),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.workOrder(workOrderId) });
       void queryClient.invalidateQueries({ queryKey: ["work-orders"] });
@@ -508,24 +529,34 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
     setEditLineModalOpen(true);
   };
 
+  const currentAssigneeIds = useMemo(() => {
+    const ids = workOrderQuery.data?.assigned_employee_ids ?? [];
+    if (ids.length > 0) {
+      return ids;
+    }
+    return workOrderQuery.data?.assigned_employee_id ? [workOrderQuery.data.assigned_employee_id] : [];
+  }, [workOrderQuery.data?.assigned_employee_id, workOrderQuery.data?.assigned_employee_ids]);
+
   const employeeOptions = useMemo(
-    () => [
-      { value: "__unassigned", label: t("work_orders.unassigned"), keywords: [t("work_orders.unassigned")] },
-      ...(employeesQuery.data?.items ?? []).map((employee) => ({
-        value: employee.employee_id,
-        label: employee.full_name?.trim() ? `${employee.full_name} (${employee.role})` : `${employee.email} (${employee.role})`,
-        keywords: [employee.full_name ?? "", employee.email, employee.role]
-      }))
-    ],
-    [employeesQuery.data?.items, t]
+    () =>
+      (employeesQuery.data?.items ?? [])
+        .map((employee) => {
+          const displayName = (employee.full_name?.trim() || employee.email).replace(/[,\s]+$/g, "");
+          const roleLabel = employeeRoleLabel(employee.role, t);
+          return {
+            value: employee.employee_id,
+            label: roleLabel ? `${displayName} (${roleLabel})` : displayName,
+            keywords: [employee.full_name ?? "", employee.email, employee.role, roleLabel ?? ""]
+          };
+        })
+        .filter((option) => !currentAssigneeIds.includes(option.value)),
+    [employeesQuery.data?.items, currentAssigneeIds, t]
   );
 
   const currentAssigneeLabel =
-    workOrderQuery.data?.assigned_employee_id && employeeById.get(workOrderQuery.data.assigned_employee_id)
-      ? employeeById.get(workOrderQuery.data.assigned_employee_id)
-      : workOrderQuery.data?.assigned_employee_id
-        ? workOrderQuery.data.assigned_employee_id
-        : t("work_orders.unassigned");
+    currentAssigneeIds.length > 0
+      ? currentAssigneeIds.map((id) => employeeById.get(id) ?? id).join(", ")
+      : t("work_orders.unassigned");
 
   const availableStatusTransitions = useMemo((): WorkOrderStatus[] => {
     const current = workOrderQuery.data?.status;
@@ -577,6 +608,16 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
     }
   };
 
+  const applyAssignees = async (employeeIds: string[]): Promise<void> => {
+    setAssigneeActionError(null);
+    try {
+      await assignMutation.mutateAsync(employeeIds);
+      setAssigneePickerValue("");
+    } catch (error) {
+      setAssigneeActionError(resolveWorkOrderActionError(error, t));
+    }
+  };
+
   const submitTimelineComment = async (): Promise<void> => {
     const comment = timelineCommentDraft.trim();
     if (!comment) {
@@ -595,7 +636,7 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
     try {
       setDocumentPreviewError(null);
       setDocumentLoading(format);
-      const response = await fetch(`/api/workspace/work-orders/${workOrderId}/document?format=${format}`, {
+      const response = await fetch(`/api/workspace/work-orders/${workOrderId}/document?format=${format}&locale=${locale}`, {
         method: "GET",
         credentials: "include"
       });
@@ -605,7 +646,7 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const contentDisposition = response.headers.get("content-disposition") ?? "";
-      const fallback = `work-order-${workOrderId}.${format}`;
+      const fallback = `work-order-${workOrderQuery.data?.order_number ?? workOrderId}.${format}`;
       const match = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
       const filename = match?.[1] ?? fallback;
       const anchor = document.createElement("a");
@@ -622,11 +663,11 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
     }
   };
 
-  const loadDocumentPreview = async (): Promise<void> => {
+  const loadDocumentPreview = useCallback(async (): Promise<void> => {
     try {
       setDocumentPreviewError(null);
       setDocumentPreviewLoading(true);
-      const response = await fetch(`/api/workspace/work-orders/${workOrderId}/document?format=html`, {
+      const response = await fetch(`/api/workspace/work-orders/${workOrderId}/document?format=html&locale=${locale}`, {
         method: "GET",
         credentials: "include"
       });
@@ -641,24 +682,24 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
     } finally {
       setDocumentPreviewLoading(false);
     }
-  };
+  }, [locale, t, workOrderId]);
 
   useEffect(() => {
     if (!documentPreviewOpen) {
       return;
     }
     void loadDocumentPreview();
-  }, [documentPreviewOpen]);
+  }, [documentPreviewOpen, loadDocumentPreview]);
 
   return (
     <PageLayout title={t("work_order_detail.title")}>
       <StateBoundary loading={workOrderQuery.isLoading} error={workOrderQuery.error?.message}>
         {workOrderQuery.data ? (
           <>
-            <Section
+          <Section
               className="space-y-2"
-              title={workOrderQuery.data.description}
-              description={`${t("work_orders.created")} ${new Date(workOrderQuery.data.created_at).toLocaleString()}`}
+              title={t("work_orders.number", { number: workOrderQuery.data.order_number })}
+              description={workOrderQuery.data.description}
               actions={
                 <div className="flex items-center gap-1.5">
                   <Link href={ROUTES.workOrders}>
@@ -675,16 +716,18 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                 </div>
               }
             >
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-2.5 py-2">
+                <p className="text-xs text-neutral-600">
+                  {t("work_orders.created")}: <span className="font-medium text-neutral-800">{new Date(workOrderQuery.data.created_at).toLocaleString()}</span>
+                </p>
                 <Badge tone={statusTone(workOrderQuery.data.status)}>{statusLabel(workOrderQuery.data.status, t)}</Badge>
               </div>
-              <p className="text-xs text-neutral-500">ID: #{workOrderQuery.data.id.slice(0, 8)}</p>
 
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
                 <DetailMetric label={t("work_orders.kpi.total")} value={formatMoney(workOrderQuery.data.total_amount)} accent />
                 <DetailMetric label={t("work_orders.kpi.paid")} value={formatMoney(workOrderQuery.data.paid_amount)} />
                 <DetailMetric label={t("work_orders.kpi.remaining")} value={formatMoney(workOrderQuery.data.remaining_amount)} />
-                <Card className="border-neutral-200 bg-neutral-0 p-2">
+                <Card className="border-neutral-200 bg-neutral-0 p-2 md:col-span-1 xl:col-span-1">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">{t("work_order_detail.payment_state")}</p>
                   <div className="mt-1.5">
                     <Badge tone={paymentStateTone(workOrderQuery.data.payment_state)}>{paymentStateLabel(workOrderQuery.data.payment_state, t)}</Badge>
@@ -713,37 +756,70 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                   <div className="space-y-1 rounded-md border border-neutral-100 bg-neutral-50/60 p-2">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">{t("work_order_detail.current_assignee")}</p>
                     <p className="text-sm font-medium text-neutral-900">{currentAssigneeLabel}</p>
-                    <div className="pt-1">
+
+                    <div className="flex flex-wrap gap-1">
+                      {currentAssigneeIds.length > 0 ? (
+                        currentAssigneeIds.map((employeeId) => (
+                          <span
+                            key={employeeId}
+                            className="inline-flex items-center gap-1 rounded-full border border-neutral-300 bg-neutral-0 px-2 py-0.5 text-xs text-neutral-800"
+                          >
+                            <span className="max-w-44 truncate">{employeeById.get(employeeId) ?? employeeId}</span>
+                            <button
+                              type="button"
+                              className="rounded px-1 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
+                              onClick={() => void applyAssignees(currentAssigneeIds.filter((value) => value !== employeeId))}
+                              disabled={assignMutation.isPending}
+                              aria-label={t("common.remove")}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-xs text-neutral-600">{t("work_orders.unassigned")}</span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-1 pt-1 sm:grid-cols-[1fr_auto_auto]">
                       <Combobox
                         id="assign-employee"
-                        value={workOrderQuery.data.assigned_employee_id ?? "__unassigned"}
-                        onChange={(value) => {
-                          assignMutation.mutate(value === "__unassigned" ? null : value);
-                        }}
+                        value={assigneePickerValue}
+                        onChange={setAssigneePickerValue}
                         options={employeeOptions}
                         placeholder={t("work_order_detail.assign_employee")}
                         searchPlaceholder={t("work_order_detail.find_employee")}
                         emptyText={t("datatable.empty.title")}
                       />
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => void applyAssignees([...currentAssigneeIds, assigneePickerValue])}
+                        disabled={!assigneePickerValue || assignMutation.isPending}
+                        loading={assignMutation.isPending}
+                      >
+                        {t("common.add")}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => void applyAssignees([])}
+                        disabled={currentAssigneeIds.length === 0 || assignMutation.isPending}
+                      >
+                        {t("common.reset")}
+                      </Button>
                     </div>
                     {employeesQuery.error ? <p className="text-xs text-error">{t("work_order_detail.error.employees_load")}</p> : null}
                     {!employeesQuery.isLoading && !employeesQuery.error && (employeesQuery.data?.items.length ?? 0) === 0 ? (
                       <p className="text-xs text-neutral-600">{t("work_order_detail.no_employees_available")}</p>
                     ) : null}
+                    {assigneeActionError ? <p className="text-xs text-error">{assigneeActionError}</p> : null}
                   </div>
                 </Card>
 
                 <Card className="space-y-2 border-neutral-200 p-2">
                   <div className="space-y-1 rounded-md border border-neutral-100 bg-neutral-50/60 p-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">{t("common.status")}</p>
-                    <div className="flex items-center gap-1.5">
-                      <Badge tone={statusTone(workOrderQuery.data.status)}>{statusLabel(workOrderQuery.data.status, t)}</Badge>
-                      <span className="text-xs text-neutral-600">{paymentStateLabel(workOrderQuery.data.payment_state, t)}</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1 rounded-md border border-neutral-100 bg-neutral-50/60 p-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">{t("work_order_detail.status_controls")}</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">{t("common.actions")}</p>
                     <div className="flex flex-wrap gap-1">
                       {availableStatusTransitions.includes("in_progress") ? (
                         <Button variant="secondary" size="sm" onClick={() => void runStatusTransition("in_progress")} disabled={statusMutation.isPending}>
@@ -943,10 +1019,7 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                       item.actor_email?.split("@")[0] ??
                       item.actor_email ??
                       t("work_order_detail.timeline.system");
-                    const role =
-                      item.actor_role && ["owner", "admin", "manager", "employee"].includes(item.actor_role)
-                        ? t(`employees.role.${item.actor_role}`)
-                        : item.actor_role ?? null;
+                    const role = employeeRoleLabel(item.actor_role, t);
                     const metaParts = [actor, role, new Date(item.created_at).toLocaleString()].filter(Boolean);
 
                     return (
@@ -1050,7 +1123,12 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
       >
         <div className="space-y-2">
           <FormField id="document-format" label={t("work_order_detail.document_format_label")}>
-            <Select id="document-format" value={documentFormat} onChange={(event) => setDocumentFormat(event.target.value as "pdf" | "html" | "docx")}>
+            <Select
+              id="document-format"
+              portal={false}
+              value={documentFormat}
+              onChange={(event) => setDocumentFormat(event.target.value as "pdf" | "html" | "docx")}
+            >
               <option value="pdf">PDF</option>
               <option value="docx">Word (DOCX)</option>
               <option value="html">HTML</option>

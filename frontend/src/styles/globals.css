@@ -3,14 +3,14 @@
 @tailwind utilities;
 
 :root {
-  --background: 210 20% 98%;
+  --background: 220 30% 97%;
   --foreground: 222 47% 11%;
   --border: 214 32% 91%;
 
   --neutral-0: 0 0% 100%;
-  --neutral-50: 210 20% 98%;
-  --neutral-100: 214 32% 96%;
-  --neutral-200: 214 32% 91%;
+  --neutral-50: 220 30% 97%;
+  --neutral-100: 220 26% 95%;
+  --neutral-200: 218 28% 89%;
   --neutral-300: 213 27% 84%;
   --neutral-400: 215 20% 65%;
   --neutral-500: 215 16% 47%;
@@ -29,8 +29,8 @@
   --radius-md: 12px;
   --radius-lg: 16px;
 
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 2px 8px rgba(15, 23, 42, 0.1);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 6px 18px rgba(15, 23, 42, 0.08);
 }
 
 .landing-theme {
@@ -63,20 +63,20 @@
 }
 
 .dark {
-  --background: 222 34% 7%;
+  --background: 224 30% 11%;
   --foreground: 210 20% 96%;
-  --border: 222 20% 20%;
+  --border: 223 18% 24%;
 
-  --neutral-0: 222 30% 10%;
-  --neutral-50: 222 28% 12%;
-  --neutral-100: 222 24% 15%;
-  --neutral-200: 222 20% 20%;
-  --neutral-300: 222 16% 30%;
-  --neutral-400: 218 14% 44%;
-  --neutral-500: 215 14% 60%;
-  --neutral-600: 215 16% 72%;
-  --neutral-700: 214 20% 82%;
-  --neutral-800: 214 26% 90%;
+  --neutral-0: 224 26% 13%;
+  --neutral-50: 224 24% 15%;
+  --neutral-100: 224 21% 18%;
+  --neutral-200: 223 18% 24%;
+  --neutral-300: 223 15% 34%;
+  --neutral-400: 220 14% 49%;
+  --neutral-500: 217 14% 66%;
+  --neutral-600: 214 18% 78%;
+  --neutral-700: 214 22% 86%;
+  --neutral-800: 214 25% 92%;
   --neutral-900: 210 20% 96%;
 
   --primary: 217 91% 64%;
@@ -85,8 +85,8 @@
   --warning: 40 96% 58%;
   --error: 0 84% 66%;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
-  --shadow-md: 0 2px 12px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 8px 20px rgba(0, 0, 0, 0.34);
 }
 
 * {

@@ -4,6 +4,7 @@ from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.auth_repository import AuthRepository
 from app.repositories.billing_event_repository import BillingEventRepository
 from app.repositories.client_repository import ClientRepository
+from app.repositories.dashboard_preference_repository import DashboardPreferenceRepository
 from app.repositories.idempotency_repository import IdempotencyRepository
 from app.repositories.integration_credential_repository import IntegrationCredentialRepository
 from app.repositories.membership_repository import MembershipRepository
@@ -30,6 +31,7 @@ __all__ = [
     "AuthRepository",
     "BillingEventRepository",
     "ClientRepository",
+    "DashboardPreferenceRepository",
     "IdempotencyRepository",
     "IntegrationCredentialRepository",
     "PlanRepository",

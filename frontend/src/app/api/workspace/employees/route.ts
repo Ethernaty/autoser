@@ -5,11 +5,20 @@ import { assertAccess } from "@/features/access/server/assert-access";
 import { createEmployee, listEmployees } from "@/features/workspace/api/server-mvp";
 import { enforceSameOrigin } from "@/shared/security/origin";
 
+function sanitizePositiveInt(value: string | null, fallback: number, min: number, max: number): number {
+  const parsed = Number(value ?? String(fallback));
+  if (!Number.isFinite(parsed)) return fallback;
+  const normalized = Math.trunc(parsed);
+  if (normalized < min) return min;
+  if (normalized > max) return max;
+  return normalized;
+}
+
 export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams.get("q") ?? "";
   const role = request.nextUrl.searchParams.get("role") ?? undefined;
-  const limit = Number(request.nextUrl.searchParams.get("limit") ?? "20");
-  const offset = Number(request.nextUrl.searchParams.get("offset") ?? "0");
+  const limit = sanitizePositiveInt(request.nextUrl.searchParams.get("limit"), 20, 1, 50);
+  const offset = sanitizePositiveInt(request.nextUrl.searchParams.get("offset"), 0, 0, 100000);
 
   const result = await runWithWorkspaceSession(request, async (workspaceContext) => {
     await assertAccess(workspaceContext, "employees.read");

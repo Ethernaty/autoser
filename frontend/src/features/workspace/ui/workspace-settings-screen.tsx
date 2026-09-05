@@ -712,7 +712,7 @@ export function WorkspaceSettingsScreen(): JSX.Element {
               </div>
             ) : null}
 
-            <div className="sticky bottom-0 border-t border-neutral-200 bg-neutral-50 px-4 py-3">
+            <div className="sticky bottom-0 border-t border-neutral-200 bg-neutral-50 px-4 py-3 pb-[max(12px,env(safe-area-inset-bottom))]">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs text-neutral-600">{t("settings.footer.note")}</p>
                 <Button type="submit" variant="primary" loading={updateMutation.isPending}>

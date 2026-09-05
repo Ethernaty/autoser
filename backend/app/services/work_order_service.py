@@ -6,7 +6,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, delete, exists, func, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -17,6 +17,7 @@ from app.models.audit_log import AuditLog
 from app.models.client import Client
 from app.models.membership import Membership, MembershipRole
 from app.models.order import Order, OrderStatus
+from app.models.work_order_assignee import WorkOrderAssignee
 from app.models.order_line import OrderLine, OrderLineType
 from app.models.payment import Payment, PaymentMethod
 from app.models.user import User
@@ -64,6 +65,13 @@ class WorkOrderTimelineEntry:
     created_at: datetime
 
 
+@dataclass(frozen=True)
+class WorkOrderRelationStats:
+    total_count: int
+    active_count: int
+    last_activity_at: datetime | None
+
+
 class WorkOrderService(BaseService):
     def __init__(
         self,
@@ -96,6 +104,8 @@ class WorkOrderService(BaseService):
         self,
         *,
         q: str | None,
+        status_scope: str = "all",
+        assignee_scope: str = "all",
         limit: int,
         offset: int,
     ) -> tuple[list[Order], int]:
@@ -105,11 +115,17 @@ class WorkOrderService(BaseService):
         def read_op(db: Session) -> tuple[list[Order], int]:
             repo = OrderRepository(db=db, tenant_id=self.tenant_id)
             if normalized_query:
-                items = repo.search(query=normalized_query, limit=limit, offset=offset)
-                total = repo.count(query=normalized_query)
+                items = repo.search(
+                    query=normalized_query,
+                    limit=limit,
+                    offset=offset,
+                    status_scope=status_scope,
+                    assignee_scope=assignee_scope,
+                )
+                total = repo.count(query=normalized_query, status_scope=status_scope, assignee_scope=assignee_scope)
             else:
-                items = repo.paginate(limit=limit, offset=offset)
-                total = repo.count(query=None)
+                items = repo.paginate(limit=limit, offset=offset, status_scope=status_scope, assignee_scope=assignee_scope)
+                total = repo.count(query=None, status_scope=status_scope, assignee_scope=assignee_scope)
             return items, total
 
         return await self.execute_read(read_op)
@@ -124,10 +140,14 @@ class WorkOrderService(BaseService):
         total_amount: Decimal,
         status: OrderStatus = OrderStatus.NEW,
         assigned_user_id: UUID | None = None,
+        assigned_user_ids: list[UUID] | None = None,
     ) -> Order:
         normalized_description = self._normalize_description(description)
-        normalized_total = self._normalize_money(total_amount, field="total_amount")
+        normalized_total = self._normalize_total_amount_for_intake(total_amount)
         normalized_status = self._normalize_status(status)
+        normalized_assignee_ids = self._normalize_assignee_ids(
+            assigned_user_ids if assigned_user_ids is not None else ([assigned_user_id] if assigned_user_id is not None else [])
+        )
 
         def write_op(db: Session) -> Order:
             if normalized_status in {OrderStatus.COMPLETED_UNPAID, OrderStatus.COMPLETED_PAID, OrderStatus.CANCELLED}:
@@ -138,16 +158,28 @@ class WorkOrderService(BaseService):
                 )
             self._assert_client_exists(db=db, client_id=client_id)
             self._assert_vehicle_link(db=db, client_id=client_id, vehicle_id=vehicle_id)
-            self._assert_assignee_valid(db=db, assigned_user_id=assigned_user_id)
+            self._assert_assignees_valid(db=db, assigned_user_ids=normalized_assignee_ids)
 
             repo = OrderRepository(db=db, tenant_id=self.tenant_id)
+            if db.bind is not None and db.bind.dialect.name == "postgresql":
+                db.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
+                    {"lock_key": f"work_order_number:{self.tenant_id}"},
+                )
+            next_order_number = repo.get_next_order_number()
             order = repo.create(
+                order_number=next_order_number,
                 client_id=client_id,
                 vehicle_id=vehicle_id,
-                assigned_user_id=assigned_user_id,
+                assigned_user_id=normalized_assignee_ids[0] if normalized_assignee_ids else None,
                 description=normalized_description,
                 total_amount=normalized_total,
                 status=normalized_status,
+            )
+            self._replace_assignees_in_tx(
+                db=db,
+                work_order_id=order.id,
+                assigned_user_ids=normalized_assignee_ids,
             )
             self._write_work_order_event(
                 db=db,
@@ -159,6 +191,7 @@ class WorkOrderService(BaseService):
                     "total_amount": str(normalized_total),
                     "client_id": str(client_id),
                     "vehicle_id": str(vehicle_id),
+                    "assigned_user_ids": [str(user_id) for user_id in normalized_assignee_ids],
                 },
             )
             return order
@@ -175,6 +208,7 @@ class WorkOrderService(BaseService):
         status: OrderStatus | None = None,
         vehicle_id: UUID | None = None,
         assigned_user_id: UUID | None = None,
+        assigned_user_ids: list[UUID] | None = None,
     ) -> Order:
         updates: dict[str, object] = {}
         if description is not None:
@@ -185,8 +219,10 @@ class WorkOrderService(BaseService):
             updates["status"] = self._normalize_status(status)
         if vehicle_id is not None:
             updates["vehicle_id"] = vehicle_id
-        if assigned_user_id is not None:
-            updates["assigned_user_id"] = assigned_user_id
+        if assigned_user_ids is not None:
+            updates["assigned_user_ids"] = self._normalize_assignee_ids(assigned_user_ids)
+        elif assigned_user_id is not None:
+            updates["assigned_user_ids"] = self._normalize_assignee_ids([assigned_user_id])
 
         if not updates:
             raise AppError(status_code=400, code="empty_update", message="No fields provided for update")
@@ -261,12 +297,37 @@ class WorkOrderService(BaseService):
 
             if "vehicle_id" in updates:
                 self._assert_vehicle_link(db=db, client_id=current.client_id, vehicle_id=updates["vehicle_id"])  # type: ignore[arg-type]
-            if "assigned_user_id" in updates:
-                self._assert_assignee_valid(db=db, assigned_user_id=updates["assigned_user_id"])  # type: ignore[arg-type]
+            previous_assignee_ids = self._list_assignee_ids_in_tx(db=db, work_order_id=work_order_id)
+            next_assignee_ids = previous_assignee_ids
+            if "assigned_user_ids" in updates:
+                requested_assignee_ids = updates.pop("assigned_user_ids")
+                if not isinstance(requested_assignee_ids, list):
+                    raise AppError(status_code=400, code="invalid_assignees", message="Invalid assignee list")
+                self._assert_assignees_valid(db=db, assigned_user_ids=requested_assignee_ids)
+                next_assignee_ids = requested_assignee_ids
+                updates["assigned_user_id"] = next_assignee_ids[0] if next_assignee_ids else None
 
             updated = repo.update(work_order_id, **updates)
             if updated is None:
                 raise AppError(status_code=404, code="work_order_not_found", message="Work order not found")
+
+            if "assigned_user_id" in updates:
+                self._replace_assignees_in_tx(
+                    db=db,
+                    work_order_id=work_order_id,
+                    assigned_user_ids=next_assignee_ids,
+                )
+                if previous_assignee_ids != next_assignee_ids:
+                    self._write_work_order_event(
+                        db=db,
+                        work_order_id=work_order_id,
+                        action="work_order_assignee_changed",
+                        message="Assignees updated",
+                        metadata={
+                            "from_assigned_user_ids": [str(user_id) for user_id in previous_assignee_ids],
+                            "to_assigned_user_ids": [str(user_id) for user_id in next_assignee_ids],
+                        },
+                    )
 
             if "status" in updates and previous_status != updated.status:
                 new_status = updated.status
@@ -328,27 +389,40 @@ class WorkOrderService(BaseService):
 
     @audit(action="update", entity="work_order")
     async def assign_employee(self, *, work_order_id: UUID, assigned_user_id: UUID | None) -> Order:
+        assignee_ids = [assigned_user_id] if assigned_user_id is not None else []
+        return await self.assign_employees(work_order_id=work_order_id, assigned_user_ids=assignee_ids)
+
+    @audit(action="update", entity="work_order")
+    async def assign_employees(self, *, work_order_id: UUID, assigned_user_ids: list[UUID]) -> Order:
+        normalized_assignee_ids = self._normalize_assignee_ids(assigned_user_ids)
+
         def write_op(db: Session) -> UUID:
             repo = OrderRepository(db=db, tenant_id=self.tenant_id)
             current = repo.get_by_id(work_order_id)
             if current is None:
                 raise AppError(status_code=404, code="work_order_not_found", message="Work order not found")
-            previous_assignee_id = current.assigned_user_id
-            self._assert_assignee_valid(db=db, assigned_user_id=assigned_user_id)
-            updated = repo.update(work_order_id, assigned_user_id=assigned_user_id)
+            previous_assignee_ids = self._list_assignee_ids_in_tx(db=db, work_order_id=work_order_id)
+            self._assert_assignees_valid(db=db, assigned_user_ids=normalized_assignee_ids)
+            updated = repo.update(
+                work_order_id,
+                assigned_user_id=normalized_assignee_ids[0] if normalized_assignee_ids else None,
+            )
             if updated is None:
                 raise AppError(status_code=404, code="work_order_not_found", message="Work order not found")
-            if previous_assignee_id != updated.assigned_user_id:
-                previous_label = str(previous_assignee_id) if previous_assignee_id is not None else "unassigned"
-                next_label = str(updated.assigned_user_id) if updated.assigned_user_id is not None else "unassigned"
+            self._replace_assignees_in_tx(
+                db=db,
+                work_order_id=work_order_id,
+                assigned_user_ids=normalized_assignee_ids,
+            )
+            if previous_assignee_ids != normalized_assignee_ids:
                 self._write_work_order_event(
                     db=db,
                     work_order_id=work_order_id,
                     action="work_order_assignee_changed",
-                    message=f"Assignee changed from {previous_label} to {next_label}",
+                    message="Assignees updated",
                     metadata={
-                        "from_assigned_user_id": str(previous_assignee_id) if previous_assignee_id is not None else None,
-                        "to_assigned_user_id": str(updated.assigned_user_id) if updated.assigned_user_id is not None else None,
+                        "from_assigned_user_ids": [str(user_id) for user_id in previous_assignee_ids],
+                        "to_assigned_user_ids": [str(user_id) for user_id in normalized_assignee_ids],
                     },
                 )
             return updated.id
@@ -691,6 +765,31 @@ class WorkOrderService(BaseService):
 
         return await self.execute_read(read_op)
 
+    async def get_assignee_ids(self, *, work_order_id: UUID) -> list[UUID]:
+        mapping = await self.get_assignee_ids_map(work_order_ids=[work_order_id])
+        return mapping.get(work_order_id, [])
+
+    async def get_assignee_ids_map(self, *, work_order_ids: list[UUID]) -> dict[UUID, list[UUID]]:
+        unique_ids = list(dict.fromkeys(work_order_ids))
+        if not unique_ids:
+            return {}
+
+        def read_op(db: Session) -> dict[UUID, list[UUID]]:
+            rows = db.execute(
+                select(WorkOrderAssignee.order_id, WorkOrderAssignee.user_id)
+                .where(
+                    WorkOrderAssignee.tenant_id == self.tenant_id,
+                    WorkOrderAssignee.order_id.in_(unique_ids),
+                )
+                .order_by(WorkOrderAssignee.created_at.asc())
+            ).all()
+            result: dict[UUID, list[UUID]] = {work_order_id: [] for work_order_id in unique_ids}
+            for order_id, user_id in rows:
+                result.setdefault(order_id, []).append(user_id)
+            return result
+
+        return await self.execute_read(read_op)
+
     async def list_work_order_timeline(
         self,
         *,
@@ -815,6 +914,42 @@ class WorkOrderService(BaseService):
 
         return await self.execute_read(read_op)
 
+    async def get_client_relation_stats(self, *, client_ids: list[UUID]) -> dict[UUID, WorkOrderRelationStats]:
+        if not client_ids:
+            return {}
+
+        def read_op(db: Session) -> dict[UUID, WorkOrderRelationStats]:
+            repo = OrderRepository(db=db, tenant_id=self.tenant_id)
+            raw_map = repo.stats_by_client_ids(client_ids=client_ids)
+            return {
+                entity_id: WorkOrderRelationStats(
+                    total_count=total_count,
+                    active_count=active_count,
+                    last_activity_at=last_activity_at,
+                )
+                for entity_id, (total_count, active_count, last_activity_at) in raw_map.items()
+            }
+
+        return await self.execute_read(read_op)
+
+    async def get_vehicle_relation_stats(self, *, vehicle_ids: list[UUID]) -> dict[UUID, WorkOrderRelationStats]:
+        if not vehicle_ids:
+            return {}
+
+        def read_op(db: Session) -> dict[UUID, WorkOrderRelationStats]:
+            repo = OrderRepository(db=db, tenant_id=self.tenant_id)
+            raw_map = repo.stats_by_vehicle_ids(vehicle_ids=vehicle_ids)
+            return {
+                entity_id: WorkOrderRelationStats(
+                    total_count=total_count,
+                    active_count=active_count,
+                    last_activity_at=last_activity_at,
+                )
+                for entity_id, (total_count, active_count, last_activity_at) in raw_map.items()
+            }
+
+        return await self.execute_read(read_op)
+
     async def get_dashboard_summary(self, *, recent_limit: int = 10) -> dict[str, Any]:
         safe_limit = max(1, min(50, recent_limit))
 
@@ -871,8 +1006,16 @@ class WorkOrderService(BaseService):
 
         return await self.execute_read(read_op)
 
-    async def get_dashboard_analytics(self, *, months: int = 12) -> dict[str, Any]:
+    async def get_dashboard_analytics(
+        self,
+        *,
+        months: int = 12,
+        status_scope: str = "all",
+        assignee_scope: str = "all",
+    ) -> dict[str, Any]:
         safe_months = max(3, min(24, int(months)))
+        normalized_status_scope = self._normalize_dashboard_status_scope(status_scope)
+        normalized_assignee_scope = self._normalize_dashboard_assignee_scope(assignee_scope)
 
         def month_start(value: datetime) -> datetime:
             return value.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -891,6 +1034,12 @@ class WorkOrderService(BaseService):
             last_30_days = now - timedelta(days=30)
             last_180_days = now - timedelta(days=180)
 
+            order_scope_criteria = self._build_dashboard_order_scope_criteria(
+                status_scope=normalized_status_scope,
+                assignee_scope=normalized_assignee_scope,
+            )
+            scoped_order_conditions = [Order.tenant_id == self.tenant_id, *order_scope_criteria]
+
             clients_total = int(
                 db.execute(
                     select(func.count()).select_from(Client).where(
@@ -901,14 +1050,14 @@ class WorkOrderService(BaseService):
             work_orders_total = int(
                 db.execute(
                     select(func.count()).select_from(Order).where(
-                        Order.tenant_id == self.tenant_id,
+                        *scoped_order_conditions,
                     )
                 ).scalar_one()
             )
             open_work_orders_count = int(
                 db.execute(
                     select(func.count()).select_from(Order).where(
-                        Order.tenant_id == self.tenant_id,
+                        *scoped_order_conditions,
                         Order.status.in_([OrderStatus.NEW, OrderStatus.IN_PROGRESS]),
                     )
                 ).scalar_one()
@@ -916,17 +1065,27 @@ class WorkOrderService(BaseService):
             closed_work_orders_count = int(
                 db.execute(
                     select(func.count()).select_from(Order).where(
-                        Order.tenant_id == self.tenant_id,
+                        *scoped_order_conditions,
                         Order.status.in_([OrderStatus.COMPLETED_UNPAID, OrderStatus.COMPLETED_PAID, OrderStatus.CANCELLED]),
                     )
                 ).scalar_one()
             )
             paid_amount_30d = Decimal(
                 db.execute(
-                    select(func.coalesce(func.sum(Payment.amount), 0)).where(
+                    select(func.coalesce(func.sum(Payment.amount), 0))
+                    .select_from(Payment)
+                    .join(
+                        Order,
+                        and_(
+                            Order.id == Payment.order_id,
+                            Order.tenant_id == self.tenant_id,
+                        ),
+                    )
+                    .where(
                         Payment.tenant_id == self.tenant_id,
                         Payment.voided_at.is_(None),
                         Payment.paid_at >= last_30_days,
+                        *order_scope_criteria,
                     )
                 ).scalar_one()
                 or 0
@@ -939,7 +1098,7 @@ class WorkOrderService(BaseService):
                     func.coalesce(func.sum(Order.total_amount), 0).label("order_amount"),
                 )
                 .where(
-                    Order.tenant_id == self.tenant_id,
+                    *scoped_order_conditions,
                     Order.created_at >= oldest_month,
                     Order.created_at < next_month,
                 )
@@ -977,11 +1136,20 @@ class WorkOrderService(BaseService):
                     func.date_trunc("month", Payment.paid_at).label("bucket"),
                     func.coalesce(func.sum(Payment.amount), 0).label("paid_amount"),
                 )
+                .select_from(Payment)
+                .join(
+                    Order,
+                    and_(
+                        Order.id == Payment.order_id,
+                        Order.tenant_id == self.tenant_id,
+                    ),
+                )
                 .where(
                     Payment.tenant_id == self.tenant_id,
                     Payment.voided_at.is_(None),
                     Payment.paid_at >= oldest_month,
                     Payment.paid_at < next_month,
+                    *order_scope_criteria,
                 )
                 .group_by("bucket")
             ).all()
@@ -1015,9 +1183,18 @@ class WorkOrderService(BaseService):
                     func.max(OrderLine.name).label("display_name"),
                     func.count(OrderLine.id).label("usage_count"),
                 )
+                .select_from(OrderLine)
+                .join(
+                    Order,
+                    and_(
+                        Order.id == OrderLine.order_id,
+                        Order.tenant_id == self.tenant_id,
+                    ),
+                )
                 .where(
                     OrderLine.tenant_id == self.tenant_id,
                     OrderLine.created_at >= last_180_days,
+                    *order_scope_criteria,
                 )
                 .group_by("name_key")
                 .order_by(func.count(OrderLine.id).desc())
@@ -1052,7 +1229,7 @@ class WorkOrderService(BaseService):
                     .select_from(Order)
                     .outerjoin(paid_amount_subquery, paid_amount_subquery.c.order_id == Order.id)
                     .where(
-                        Order.tenant_id == self.tenant_id,
+                        *scoped_order_conditions,
                         Order.status.in_([OrderStatus.NEW, OrderStatus.IN_PROGRESS, OrderStatus.COMPLETED_UNPAID]),
                         remaining_expr > 0,
                     )
@@ -1070,7 +1247,7 @@ class WorkOrderService(BaseService):
                 .select_from(Order)
                 .outerjoin(paid_amount_subquery, paid_amount_subquery.c.order_id == Order.id)
                 .where(
-                    Order.tenant_id == self.tenant_id,
+                    *scoped_order_conditions,
                     Order.status.in_([OrderStatus.NEW, OrderStatus.IN_PROGRESS, OrderStatus.COMPLETED_UNPAID]),
                     remaining_expr > 0,
                 )
@@ -1116,7 +1293,7 @@ class WorkOrderService(BaseService):
                     func.count(Order.id).label("orders_count"),
                 )
                 .where(
-                    Order.tenant_id == self.tenant_id,
+                    *scoped_order_conditions,
                     Order.created_at >= weekday_start,
                 )
                 .group_by("dow")
@@ -1155,6 +1332,78 @@ class WorkOrderService(BaseService):
 
         return await self.execute_read(read_op)
 
+    @staticmethod
+    def _normalize_dashboard_status_scope(raw_scope: str | None) -> str:
+        candidate = str(raw_scope or "all").strip().lower()
+        allowed = {
+            "all",
+            "active",
+            "completed",
+            "cancelled",
+            "completed_unpaid",
+            "new",
+            "in_progress",
+            "completed_paid",
+        }
+        if candidate in allowed:
+            return candidate
+        return "all"
+
+    @staticmethod
+    def _normalize_dashboard_assignee_scope(raw_scope: str | None) -> str:
+        candidate = str(raw_scope or "all").strip().lower()
+        if candidate in {"all", "unassigned"}:
+            return candidate
+        try:
+            return str(UUID(str(raw_scope)))
+        except Exception:
+            return "all"
+
+    def _build_dashboard_order_scope_criteria(self, *, status_scope: str, assignee_scope: str) -> list[object]:
+        criteria: list[object] = []
+
+        if status_scope == "active":
+            criteria.append(Order.status.in_([OrderStatus.NEW, OrderStatus.IN_PROGRESS]))
+        elif status_scope == "completed":
+            criteria.append(Order.status.in_([OrderStatus.COMPLETED_UNPAID, OrderStatus.COMPLETED_PAID]))
+        elif status_scope == "cancelled":
+            criteria.append(Order.status == OrderStatus.CANCELLED)
+        elif status_scope == "completed_unpaid":
+            criteria.append(Order.status == OrderStatus.COMPLETED_UNPAID)
+        elif status_scope == "new":
+            criteria.append(Order.status == OrderStatus.NEW)
+        elif status_scope == "in_progress":
+            criteria.append(Order.status == OrderStatus.IN_PROGRESS)
+        elif status_scope == "completed_paid":
+            criteria.append(Order.status == OrderStatus.COMPLETED_PAID)
+
+        if assignee_scope == "unassigned":
+            criteria.append(Order.assigned_user_id.is_(None))
+            criteria.append(
+                ~exists(
+                    select(1).where(
+                        WorkOrderAssignee.tenant_id == self.tenant_id,
+                        WorkOrderAssignee.order_id == Order.id,
+                    )
+                )
+            )
+        elif assignee_scope != "all":
+            assignee_id = UUID(assignee_scope)
+            criteria.append(
+                or_(
+                    Order.assigned_user_id == assignee_id,
+                    exists(
+                        select(1).where(
+                            WorkOrderAssignee.tenant_id == self.tenant_id,
+                            WorkOrderAssignee.order_id == Order.id,
+                            WorkOrderAssignee.user_id == assignee_id,
+                        )
+                    ),
+                )
+            )
+
+        return criteria
+
     def _assert_order_exists(self, *, db: Session, work_order_id: UUID) -> Order:
         repo = OrderRepository(db=db, tenant_id=self.tenant_id)
         order = repo.get_by_id(work_order_id)
@@ -1184,17 +1433,52 @@ class WorkOrderService(BaseService):
     def _assert_assignee_valid(self, *, db: Session, assigned_user_id: UUID | None) -> None:
         if assigned_user_id is None:
             return
-        membership = db.execute(
+        self._assert_assignees_valid(db=db, assigned_user_ids=[assigned_user_id])
+
+    def _assert_assignees_valid(self, *, db: Session, assigned_user_ids: list[UUID]) -> None:
+        if not assigned_user_ids:
+            return
+        memberships = db.execute(
             select(Membership).where(
                 Membership.tenant_id == self.tenant_id,
-                Membership.user_id == assigned_user_id,
+                Membership.user_id.in_(assigned_user_ids),
                 Membership.role.in_(
                     [MembershipRole.OWNER, MembershipRole.ADMIN, MembershipRole.MANAGER, MembershipRole.EMPLOYEE]
                 ),
             )
-        ).scalar_one_or_none()
-        if membership is None:
+        ).scalars().all()
+        resolved_user_ids = {item.user_id for item in memberships}
+        missing_user_ids = [user_id for user_id in assigned_user_ids if user_id not in resolved_user_ids]
+        if missing_user_ids:
             raise AppError(status_code=404, code="employee_not_found", message="Employee not found in workspace")
+
+    def _list_assignee_ids_in_tx(self, *, db: Session, work_order_id: UUID) -> list[UUID]:
+        rows = db.execute(
+            select(WorkOrderAssignee.user_id)
+            .where(
+                WorkOrderAssignee.tenant_id == self.tenant_id,
+                WorkOrderAssignee.order_id == work_order_id,
+            )
+            .order_by(WorkOrderAssignee.created_at.asc())
+        ).scalars().all()
+        return list(rows)
+
+    def _replace_assignees_in_tx(self, *, db: Session, work_order_id: UUID, assigned_user_ids: list[UUID]) -> None:
+        db.execute(
+            delete(WorkOrderAssignee).where(
+                WorkOrderAssignee.tenant_id == self.tenant_id,
+                WorkOrderAssignee.order_id == work_order_id,
+            )
+        )
+        for user_id in assigned_user_ids:
+            db.add(
+                WorkOrderAssignee(
+                    tenant_id=self.tenant_id,
+                    order_id=work_order_id,
+                    user_id=user_id,
+                )
+            )
+        db.flush()
 
     def _assert_status_transition(self, *, current: OrderStatus, target: OrderStatus) -> None:
         if current == target:
@@ -1294,6 +1578,19 @@ class WorkOrderService(BaseService):
         return normalized if normalized else None
 
     @staticmethod
+    def _normalize_assignee_ids(values: list[UUID] | None) -> list[UUID]:
+        if not values:
+            return []
+        unique_values: list[UUID] = []
+        seen: set[UUID] = set()
+        for item in values:
+            if item in seen:
+                continue
+            unique_values.append(item)
+            seen.add(item)
+        return unique_values
+
+    @staticmethod
     def _normalize_money(value: Decimal, *, field: str) -> Decimal:
         try:
             normalized = Decimal(value).quantize(_MONEY_QUANT, rounding=ROUND_HALF_UP)
@@ -1301,6 +1598,16 @@ class WorkOrderService(BaseService):
             raise AppError(status_code=400, code=f"invalid_{field}", message=f"Invalid {field}") from exc
         if normalized <= 0:
             raise AppError(status_code=400, code=f"invalid_{field}", message=f"Invalid {field}")
+        return normalized
+
+    @staticmethod
+    def _normalize_total_amount_for_intake(value: Decimal) -> Decimal:
+        try:
+            normalized = Decimal(value).quantize(_MONEY_QUANT, rounding=ROUND_HALF_UP)
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            raise AppError(status_code=400, code="invalid_total_amount", message="Invalid total_amount") from exc
+        if normalized < 0:
+            raise AppError(status_code=400, code="invalid_total_amount", message="Invalid total_amount")
         return normalized
 
     @staticmethod

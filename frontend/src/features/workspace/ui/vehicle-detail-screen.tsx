@@ -43,7 +43,7 @@ export function VehicleDetailScreen({ vehicleId }: { vehicleId: string }): JSX.E
 
   const historyQuery = useQuery({
     queryKey: mvpQueryKeys.vehicleHistory(vehicleId, 100, 0),
-    queryFn: () => fetchVehicleHistory(vehicleId, { limit: 100, offset: 0 })
+    queryFn: () => fetchVehicleHistory(vehicleId, { limit: 50, offset: 0 })
   });
 
   const updateMutation = useMutation({
@@ -69,7 +69,7 @@ export function VehicleDetailScreen({ vehicleId }: { vehicleId: string }): JSX.E
   }, [currentOwnerQuery.data, historyQuery.data]);
 
   return (
-    <PageLayout title={t("vehicle_detail.title")} subtitle={vehicleId}>
+    <PageLayout title={t("vehicle_detail.title")}>
       <StateBoundary loading={vehicleQuery.isLoading} error={vehicleQuery.error?.message}>
         {vehicleQuery.data ? (
           <>
@@ -106,7 +106,7 @@ export function VehicleDetailScreen({ vehicleId }: { vehicleId: string }): JSX.E
                       <span className="text-neutral-500">{t("common.vin")}:</span> {vehicleQuery.data.vin ?? t("common.not_set")}
                     </p>
                     <p>
-                      <span className="text-neutral-500">{t("client_detail.visits")}:</span> {historyQuery.data?.length ?? 0}
+                      <span className="text-neutral-500">{t("client_detail.visits")}:</span> {vehicleQuery.data.work_order_count ?? 0}
                     </p>
                   </div>
                   <div className="space-y-1">
@@ -192,13 +192,11 @@ export function VehicleDetailScreen({ vehicleId }: { vehicleId: string }): JSX.E
                           <p className="text-xs text-neutral-600">
                             {t("work_orders.kpi.paid")}: {formatMoney(item.paid_amount)} | {t("work_orders.kpi.remaining")}: {formatMoney(item.remaining_amount)}
                           </p>
-                          {item.client_id ? (
-                            <Link href={ROUTES.clientDetail(item.client_id) as Route}>
-                              <Button variant="secondary" size="sm" className="mt-1">
-                                {t("common.open")}
-                              </Button>
-                            </Link>
-                          ) : null}
+                          <Link href={ROUTES.workOrderDetail(item.id) as Route}>
+                            <Button variant="secondary" size="sm" className="mt-1">
+                              {t("common.open")}
+                            </Button>
+                          </Link>
                         </div>
                       </div>
                     </Card>

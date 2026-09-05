@@ -30,11 +30,16 @@ class VehicleResponse(BaseModel):
     id: UUID
     tenant_id: UUID
     client_id: UUID
+    client_name: str | None = None
+    client_phone: str | None = None
     plate_number: str
     make_model: str
     year: int | None
     vin: str | None
     comment: str | None
+    work_order_count: int = 0
+    active_work_order_count: int = 0
+    last_activity_at: datetime | None = None
     archived_at: datetime | None
     created_at: datetime
     updated_at: datetime

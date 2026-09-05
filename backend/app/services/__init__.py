@@ -3,6 +3,7 @@ from app.services.auth_service import AuthService
 from app.services.audit_log_service import AuditLogService
 from app.services.base_service import BaseService
 from app.services.client_service import ClientService
+from app.services.dashboard_preferences_service import DashboardPreferencesService
 from app.services.employee_service import EmployeeService
 from app.services.feature_flag_service import FeatureFlagService
 from app.services.idempotency_service import IdempotencyService
@@ -25,6 +26,7 @@ __all__ = [
     "AuditLogService",
     "BaseService",
     "ClientService",
+    "DashboardPreferencesService",
     "EmployeeService",
     "FeatureFlagService",
     "IdempotencyService",

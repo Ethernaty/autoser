@@ -10,6 +10,7 @@ export * from "@/design-system/primitives/card";
 export * from "@/design-system/primitives/badge";
 export * from "@/design-system/primitives/status-indicator";
 export * from "@/design-system/primitives/modal";
+export * from "@/design-system/primitives/mobile-pagination";
 export * from "@/design-system/primitives/confirm-dialog";
 export * from "@/design-system/primitives/combobox";
 export * from "@/design-system/primitives/data-table/data-table";

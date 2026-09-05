@@ -110,6 +110,16 @@ class VehicleService(BaseService):
 
         return await self.execute_read(read_op)
 
+    async def count_by_client_ids(self, *, client_ids: list[UUID], include_archived: bool = False) -> dict[UUID, int]:
+        if not client_ids:
+            return {}
+
+        def read_op(db: Session) -> dict[UUID, int]:
+            repo = VehicleRepository(db=db, tenant_id=self.tenant_id)
+            return repo.count_by_client_ids(client_ids=client_ids, include_archived=include_archived)
+
+        return await self.execute_read(read_op)
+
     async def update_vehicle(
         self,
         *,

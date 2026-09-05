@@ -77,6 +77,7 @@ def _to_work_order_response(
     client_name: str | None = None,
     vehicle_plate_number: str | None = None,
     vehicle_make_model: str | None = None,
+    assigned_employee_ids: list[UUID] | None = None,
 ) -> WorkOrderResponse:
     if financials.paid_amount <= Decimal("0.00"):
         payment_state = "unpaid"
@@ -85,16 +86,21 @@ def _to_work_order_response(
     else:
         payment_state = "partial"
 
+    effective_assignee_ids = assigned_employee_ids or ([order.assigned_user_id] if order.assigned_user_id is not None else [])
+    primary_assignee_id = effective_assignee_ids[0] if effective_assignee_ids else order.assigned_user_id
+
     return WorkOrderResponse(
         id=order.id,
+        order_number=order.order_number,
         tenant_id=order.tenant_id,
         client_id=order.client_id,
         client_name=client_name,
         vehicle_id=order.vehicle_id,
         vehicle_plate_number=vehicle_plate_number,
         vehicle_make_model=vehicle_make_model,
-        assigned_employee_id=order.assigned_user_id,
-        assigned_user_id=order.assigned_user_id,
+        assigned_employee_ids=effective_assignee_ids,
+        assigned_employee_id=primary_assignee_id,
+        assigned_user_id=primary_assignee_id,
         description=order.description,
         total_amount=order.total_amount,
         price=order.total_amount,
@@ -157,9 +163,10 @@ async def create_work_order(
         description=payload.description,
         total_amount=payload.effective_total_amount,
         status=payload.status,
-        assigned_user_id=payload.effective_assignee_id,
+        assigned_user_ids=payload.effective_assignee_ids,
     )
     financials = await service.get_financials(work_order_id=order.id)
+    assignee_ids = await service.get_assignee_ids(work_order_id=order.id)
     client_map, vehicle_map = await _build_order_party_maps(
         orders=[order],
         client_service=client_service,
@@ -172,6 +179,7 @@ async def create_work_order(
         client_name=client_map.get(order.client_id),
         vehicle_plate_number=getattr(vehicle, "plate_number", None),
         vehicle_make_model=getattr(vehicle, "make_model", None),
+        assigned_employee_ids=assignee_ids,
     )
 
 
@@ -184,14 +192,23 @@ async def create_work_order(
 )
 async def list_work_orders(
     query: str | None = Query(default=None, alias="q"),
+    status_scope: str = Query(default="all", max_length=32),
+    assignee_scope: str = Query(default="all", max_length=64),
     limit: int = Query(default=20, ge=1, le=MAX_LIMIT),
     offset: int = Query(default=0, ge=0),
     service: WorkOrderService = Depends(get_work_order_service),
     client_service: ClientService = Depends(get_client_service),
     vehicle_service: VehicleService = Depends(get_vehicle_service),
 ) -> WorkOrderListResponse:
-    items, total = await service.list_work_orders(q=query, limit=limit, offset=offset)
+    items, total = await service.list_work_orders(
+        q=query,
+        status_scope=status_scope,
+        assignee_scope=assignee_scope,
+        limit=limit,
+        offset=offset,
+    )
     financials_map = await service.get_financials_map(work_order_ids=[item.id for item in items])
+    assignee_ids_map = await service.get_assignee_ids_map(work_order_ids=[item.id for item in items])
     client_map, vehicle_map = await _build_order_party_maps(
         orders=items,
         client_service=client_service,
@@ -216,6 +233,7 @@ async def list_work_orders(
                 vehicle_make_model=getattr(vehicle_map.get(item.vehicle_id), "make_model", None)
                 if item.vehicle_id is not None
                 else None,
+                assigned_employee_ids=assignee_ids_map.get(item.id, []),
             )
             for item in items
         ],
@@ -235,7 +253,8 @@ async def list_work_orders(
 async def get_work_order(work_order_id: UUID, service: WorkOrderService = Depends(get_work_order_service)) -> WorkOrderResponse:
     order = await service.get_work_order(work_order_id=work_order_id)
     financials = await service.get_financials(work_order_id=work_order_id)
-    return _to_work_order_response(order, financials)
+    assignee_ids = await service.get_assignee_ids(work_order_id=work_order_id)
+    return _to_work_order_response(order, financials, assigned_employee_ids=assignee_ids)
 
 
 @router.patch("/{work_order_id}", response_model=WorkOrderResponse, dependencies=[Depends(RequirePermission("orders", "update"))])
@@ -256,10 +275,12 @@ async def update_work_order(
         total_amount=payload.total_amount if payload.total_amount is not None else payload.price,
         status=payload.status,
         vehicle_id=payload.vehicle_id,
+        assigned_user_ids=payload.assigned_employee_ids,
         assigned_user_id=payload.effective_assignee_id,
     )
     financials = await service.get_financials(work_order_id=work_order_id)
-    return _to_work_order_response(order, financials)
+    assignee_ids = await service.get_assignee_ids(work_order_id=work_order_id)
+    return _to_work_order_response(order, financials, assigned_employee_ids=assignee_ids)
 
 
 @router.post(
@@ -280,7 +301,8 @@ async def set_work_order_status(
 ) -> WorkOrderResponse:
     order = await service.set_status(work_order_id=work_order_id, status=payload.status)
     financials = await service.get_financials(work_order_id=work_order_id)
-    return _to_work_order_response(order, financials)
+    assignee_ids = await service.get_assignee_ids(work_order_id=work_order_id)
+    return _to_work_order_response(order, financials, assigned_employee_ids=assignee_ids)
 
 
 @router.post(
@@ -293,9 +315,10 @@ async def assign_work_order_employee(
     payload: WorkOrderAssignRequest,
     service: WorkOrderService = Depends(get_work_order_service),
 ) -> WorkOrderResponse:
-    order = await service.assign_employee(work_order_id=work_order_id, assigned_user_id=payload.effective_employee_id)
+    order = await service.assign_employees(work_order_id=work_order_id, assigned_user_ids=payload.effective_employee_ids)
     financials = await service.get_financials(work_order_id=work_order_id)
-    return _to_work_order_response(order, financials)
+    assignee_ids = await service.get_assignee_ids(work_order_id=work_order_id)
+    return _to_work_order_response(order, financials, assigned_employee_ids=assignee_ids)
 
 
 @router.post(
@@ -310,7 +333,8 @@ async def attach_work_order_vehicle(
 ) -> WorkOrderResponse:
     order = await service.attach_vehicle(work_order_id=work_order_id, vehicle_id=payload.vehicle_id)
     financials = await service.get_financials(work_order_id=work_order_id)
-    return _to_work_order_response(order, financials)
+    assignee_ids = await service.get_assignee_ids(work_order_id=work_order_id)
+    return _to_work_order_response(order, financials, assigned_employee_ids=assignee_ids)
 
 
 @router.post(
@@ -321,7 +345,8 @@ async def attach_work_order_vehicle(
 async def close_work_order(work_order_id: UUID, service: WorkOrderService = Depends(get_work_order_service)) -> WorkOrderResponse:
     order = await service.close_work_order(work_order_id=work_order_id)
     financials = await service.get_financials(work_order_id=work_order_id)
-    return _to_work_order_response(order, financials)
+    assignee_ids = await service.get_assignee_ids(work_order_id=work_order_id)
+    return _to_work_order_response(order, financials, assigned_employee_ids=assignee_ids)
 
 
 @router.delete(
@@ -467,10 +492,13 @@ async def create_work_order_payment(
 async def get_work_order_document(
     work_order_id: UUID,
     format: Literal["pdf", "html", "docx"] = Query(default="pdf"),
+    locale: str | None = Query(default=None),
+    accept_language: str | None = Header(default=None, alias="Accept-Language"),
     work_order_service: WorkOrderService = Depends(get_work_order_service),
     client_service: ClientService = Depends(get_client_service),
     vehicle_service: VehicleService = Depends(get_vehicle_service),
 ) -> Response:
+    resolved_locale = locale or accept_language
     order = await work_order_service.get_work_order(work_order_id=work_order_id)
     financials = await work_order_service.get_financials(work_order_id=work_order_id)
     lines = await work_order_service.list_order_lines(work_order_id=work_order_id)
@@ -479,24 +507,18 @@ async def get_work_order_document(
     vehicle = await vehicle_service.get_vehicle(vehicle_id=order.vehicle_id) if order.vehicle_id is not None else None
 
     snapshot = WorkOrderDocumentSnapshot(
-        work_order_id=str(order.id),
-        status=order.status.value,
+        order_number=order.order_number,
         description=order.description,
-        created_at=order.created_at,
-        updated_at=order.updated_at,
         total_amount=Decimal(order.total_amount),
         paid_amount=financials.paid_amount,
         remaining_amount=financials.remaining_amount,
         client_name=client.name,
         client_phone=client.phone,
         client_email=client.email,
-        client_source=client.source,
-        client_comment=client.comment,
         vehicle_plate_number=vehicle.plate_number if vehicle is not None else None,
         vehicle_make_model=vehicle.make_model if vehicle is not None else None,
         vehicle_year=vehicle.year if vehicle is not None else None,
         vehicle_vin=vehicle.vin if vehicle is not None else None,
-        vehicle_comment=vehicle.comment if vehicle is not None else None,
         lines=[
             WorkOrderDocumentLine(
                 line_type=item.line_type.value,
@@ -519,16 +541,16 @@ async def get_work_order_document(
         ],
     )
 
-    file_name_base = f"work-order-{order.id}"
+    file_name_base = f"work-order-{order.order_number}"
     if format == "html":
-        content = render_work_order_html(snapshot)
+        content = render_work_order_html(snapshot, locale=resolved_locale)
         return Response(
             content=content,
             media_type="text/html; charset=utf-8",
             headers={"Content-Disposition": f'inline; filename="{file_name_base}.html"'},
         )
     if format == "docx":
-        content = render_work_order_docx(snapshot)
+        content = render_work_order_docx(snapshot, locale=resolved_locale)
         return StreamingResponse(
             iter([content]),
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -536,7 +558,7 @@ async def get_work_order_document(
         )
     if format == "pdf":
         try:
-            content = render_work_order_pdf(snapshot)
+            content = render_work_order_pdf(snapshot, locale=resolved_locale)
         except RuntimeError as exc:
             raise AppError(
                 status_code=503,

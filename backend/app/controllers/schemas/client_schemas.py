@@ -33,6 +33,10 @@ class ClientResponse(BaseModel):
     email: str | None
     source: str | None
     comment: str | None
+    vehicle_count: int = 0
+    work_order_count: int = 0
+    active_work_order_count: int = 0
+    last_activity_at: datetime | None = None
     version: int
     created_at: datetime
     updated_at: datetime

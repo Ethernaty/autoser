@@ -38,6 +38,7 @@ export async function PATCH(
     status?: "new" | "in_progress" | "completed_unpaid" | "completed_paid" | "cancelled";
     vehicle_id?: string;
     assigned_employee_id?: string | null;
+    assigned_employee_ids?: string[];
   };
   try {
     payload = (await request.json()) as {
@@ -46,6 +47,7 @@ export async function PATCH(
       status?: "new" | "in_progress" | "completed_unpaid" | "completed_paid" | "cancelled";
       vehicle_id?: string;
       assigned_employee_id?: string | null;
+      assigned_employee_ids?: string[];
     };
   } catch {
     return NextResponse.json({ message: "Invalid request payload" }, { status: 400 });
@@ -56,7 +58,8 @@ export async function PATCH(
     payload.total_amount === undefined &&
     !payload.status &&
     !payload.vehicle_id &&
-    payload.assigned_employee_id === undefined
+    payload.assigned_employee_id === undefined &&
+    payload.assigned_employee_ids === undefined
   ) {
     return NextResponse.json({ message: "No update fields provided" }, { status: 400 });
   }

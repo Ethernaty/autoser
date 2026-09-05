@@ -68,6 +68,8 @@ export type SelectProps = VariantProps<typeof selectVariants> & {
   name?: string;
   value?: string | number;
   defaultValue?: string | number;
+  triggerLabel?: string;
+  portal?: boolean;
   disabled?: boolean;
   required?: boolean;
   className?: string;
@@ -78,7 +80,27 @@ export type SelectProps = VariantProps<typeof selectVariants> & {
 };
 
 export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
-  ({ className, variant, invalid, size, children, value, defaultValue, name, onChange, disabled, id, title, required, ...props }, ref) => {
+  (
+    {
+      className,
+      variant,
+      invalid,
+      size,
+      children,
+      value,
+      defaultValue,
+      triggerLabel,
+      name,
+      onChange,
+      disabled,
+      id,
+      title,
+      required,
+      portal = true,
+      ...props
+    },
+    ref
+  ) => {
     const rootRef = React.useRef<HTMLDivElement>(null);
     const buttonRef = React.useRef<HTMLButtonElement>(null);
     const menuRef = React.useRef<HTMLDivElement>(null);
@@ -133,7 +155,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
         top: showAbove ? Math.max(margin, rect.top - maxHeight - 4) : rect.bottom + 4,
         width: rect.width,
         maxHeight,
-        zIndex: 140
+        zIndex: 220
       });
     }, []);
 
@@ -142,7 +164,9 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
         return;
       }
 
-      updateMenuPosition();
+      if (portal) {
+        updateMenuPosition();
+      }
 
       const onPointerDown = (event: MouseEvent): void => {
         if (!rootRef.current) {
@@ -163,7 +187,9 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
       };
 
       const onReposition = (): void => {
-        updateMenuPosition();
+        if (portal) {
+          updateMenuPosition();
+        }
       };
 
       document.addEventListener("mousedown", onPointerDown);
@@ -177,7 +203,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
         window.removeEventListener("scroll", onReposition, true);
         window.removeEventListener("resize", onReposition);
       };
-    }, [open, updateMenuPosition]);
+    }, [open, portal, updateMenuPosition]);
 
     const emitChange = (nextValue: string): void => {
       if (!isControlled) {
@@ -196,6 +222,11 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
       } as unknown as React.ChangeEvent<HTMLSelectElement>;
 
       onChange(syntheticEvent);
+    };
+
+    const applyOption = (nextValue: string): void => {
+      emitChange(nextValue);
+      setOpen(false);
     };
 
     return (
@@ -227,24 +258,26 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
             selectVariants({ variant, invalid, size }),
             className
           )}
-          aria-invalid={invalid ?? false}
           aria-label={props["aria-label"]}
           aria-expanded={open}
           aria-haspopup="listbox"
           disabled={disabled}
           onClick={() => setOpen((prev) => !prev)}
         >
-          <span className={cn("truncate", selectedOption ? "text-neutral-900" : "text-neutral-500")}>{selectedOption?.label ?? ""}</span>
+          <span className={cn("truncate", selectedOption ? "text-neutral-900" : "text-neutral-500")}>
+            {triggerLabel ?? selectedOption?.label ?? ""}
+          </span>
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-neutral-500" />
         </button>
 
-        {open && menuStyle
-          ? createPortal(
+        {open && (portal ? menuStyle : true)
+          ? portal
+            ? createPortal(
               <div
                 data-floating-menu="true"
                 ref={menuRef}
                 className="overflow-auto rounded-md border border-neutral-200 bg-neutral-0 p-1 shadow-md"
-                style={menuStyle}
+                style={menuStyle ?? undefined}
                 role="listbox"
               >
                 {options.map((option) => (
@@ -256,9 +289,16 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
                       option.value === selectedValue ? "bg-primary/10 text-primary" : "text-neutral-800 hover:bg-neutral-100",
                       option.disabled && "pointer-events-none opacity-50"
                     )}
-                    onClick={() => {
-                      emitChange(option.value);
-                      setOpen(false);
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      applyOption(option.value);
+                    }}
+                    onClick={(event) => {
+                      if (event.detail !== 0) {
+                        return;
+                      }
+                      applyOption(option.value);
                     }}
                     disabled={option.disabled}
                   >
@@ -267,6 +307,40 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
                 ))}
               </div>,
               document.body
+            )
+            : (
+              <div
+                data-floating-menu="true"
+                ref={menuRef}
+                className="absolute left-0 top-[calc(100%+4px)] z-[140] max-h-[280px] w-full overflow-auto rounded-md border border-neutral-200 bg-neutral-0 p-1 shadow-md"
+                role="listbox"
+              >
+                {options.map((option) => (
+                  <button
+                    key={`${name ?? "select"}-${option.value}`}
+                    type="button"
+                    className={cn(
+                      "w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors",
+                      option.value === selectedValue ? "bg-primary/10 text-primary" : "text-neutral-800 hover:bg-neutral-100",
+                      option.disabled && "pointer-events-none opacity-50"
+                    )}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      applyOption(option.value);
+                    }}
+                    onClick={(event) => {
+                      if (event.detail !== 0) {
+                        return;
+                      }
+                      applyOption(option.value);
+                    }}
+                    disabled={option.disabled}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
             )
           : null}
       </div>

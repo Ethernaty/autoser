@@ -59,6 +59,25 @@ def _to_work_summary(order_lines: list[object]) -> str | None:
     return ", ".join(preview)
 
 
+def _enrich_client_response(
+    *,
+    client,
+    vehicle_count: int = 0,
+    work_order_count: int = 0,
+    active_work_order_count: int = 0,
+    last_activity_at=None,
+) -> ClientResponse:
+    base = ClientResponse.model_validate(client)
+    return base.model_copy(
+        update={
+            "vehicle_count": vehicle_count,
+            "work_order_count": work_order_count,
+            "active_work_order_count": active_work_order_count,
+            "last_activity_at": last_activity_at,
+        }
+    )
+
+
 @router.post(
     "/",
     response_model=ClientResponse,
@@ -90,6 +109,8 @@ async def list_clients(
     limit: int = Query(default=20, ge=1, le=MAX_LIMIT),
     offset: int = Query(default=0, ge=0),
     service: ClientService = Depends(get_client_service),
+    vehicle_service: VehicleService = Depends(get_vehicle_service),
+    work_order_service: WorkOrderService = Depends(get_work_order_service),
 ) -> ClientListResponse:
     if query:
         items = await service.search_clients(query=query, limit=limit, offset=offset)
@@ -98,8 +119,25 @@ async def list_clients(
         items = await service.list_clients_paginated(limit=limit, offset=offset)
         total = await service.count_clients()
 
+    client_ids = [item.id for item in items]
+    vehicle_counts = await vehicle_service.count_by_client_ids(client_ids=client_ids)
+    activity_map = await work_order_service.get_client_relation_stats(client_ids=client_ids)
+
+    response_items: list[ClientResponse] = []
+    for item in items:
+        activity = activity_map.get(item.id)
+        response_items.append(
+            _enrich_client_response(
+                client=item,
+                vehicle_count=vehicle_counts.get(item.id, 0),
+                work_order_count=activity.total_count if activity is not None else 0,
+                active_work_order_count=activity.active_count if activity is not None else 0,
+                last_activity_at=activity.last_activity_at if activity is not None else None,
+            )
+        )
+
     return ClientListResponse(
-        items=[ClientResponse.model_validate(item) for item in items],
+        items=response_items,
         total=total,
         limit=limit,
         offset=offset,
@@ -124,9 +162,23 @@ async def list_clients_batch(
     response_model=ClientResponse,
     dependencies=[Depends(RequirePermission("clients", "read"))],
 )
-async def get_client(client_id: UUID, service: ClientService = Depends(get_client_service)) -> ClientResponse:
+async def get_client(
+    client_id: UUID,
+    service: ClientService = Depends(get_client_service),
+    vehicle_service: VehicleService = Depends(get_vehicle_service),
+    work_order_service: WorkOrderService = Depends(get_work_order_service),
+) -> ClientResponse:
     client = await service.get_client(client_id=client_id)
-    return ClientResponse.model_validate(client)
+    vehicle_counts = await vehicle_service.count_by_client_ids(client_ids=[client.id])
+    activity_map = await work_order_service.get_client_relation_stats(client_ids=[client.id])
+    activity = activity_map.get(client.id)
+    return _enrich_client_response(
+        client=client,
+        vehicle_count=vehicle_counts.get(client.id, 0),
+        work_order_count=activity.total_count if activity is not None else 0,
+        active_work_order_count=activity.active_count if activity is not None else 0,
+        last_activity_at=activity.last_activity_at if activity is not None else None,
+    )
 
 
 @router.get(
@@ -159,6 +211,7 @@ async def list_client_work_orders(
         response.append(
             WorkOrderHistoryItemResponse(
                 id=order.id,
+                order_number=order.order_number,
                 client_id=order.client_id,
                 client_name=None,
                 vehicle_id=order.vehicle_id,

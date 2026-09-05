@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import Enum
 from uuid import UUID
 
-from sqlalchemy import DateTime, Enum as SQLEnum, ForeignKey, Index, Numeric, Text, func
+from sqlalchemy import DateTime, Enum as SQLEnum, ForeignKey, Index, Integer, Numeric, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,6 +30,7 @@ class Order(BaseModel, TenantScopedMixin):
         Index("ix_orders_tenant_assigned_user", "tenant_id", "assigned_user_id"),
         Index("ix_orders_tenant_status", "tenant_id", "status"),
         Index("ix_orders_tenant_created_at", "tenant_id", "created_at"),
+        UniqueConstraint("tenant_id", "order_number", name="uq_orders_tenant_order_number"),
     )
 
     client_id: Mapped[UUID] = mapped_column(
@@ -47,6 +48,7 @@ class Order(BaseModel, TenantScopedMixin):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    order_number: Mapped[int] = mapped_column(Integer, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     total_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     status: Mapped[OrderStatus] = mapped_column(

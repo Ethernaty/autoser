@@ -3,16 +3,53 @@ import { NextRequest, NextResponse } from "next/server";
 import { runWithWorkspaceSession, withSessionJson } from "@/features/auth/api/backend-session";
 import { assertAccess } from "@/features/access/server/assert-access";
 import { createWorkOrder, listWorkOrders } from "@/features/workspace/api/server-mvp";
+import type { DashboardStatusScope } from "@/features/workspace/types/mvp-types";
 import { enforceSameOrigin } from "@/shared/security/origin";
+
+const STATUS_SCOPES: DashboardStatusScope[] = [
+  "all",
+  "active",
+  "completed",
+  "cancelled",
+  "completed_unpaid",
+  "new",
+  "in_progress",
+  "completed_paid"
+];
+
+function sanitizeAssigneeScope(raw: string | null): string {
+  if (!raw) return "all";
+  const value = raw.trim();
+  if (!value) return "all";
+  if (value === "all" || value === "unassigned") return value;
+  if (value.length > 64) return "all";
+  if (!/^[a-zA-Z0-9@._:-]+$/.test(value)) return "all";
+  return value;
+}
+
+function sanitizePositiveInt(raw: string | null, fallback: number, min: number, max: number): number {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return fallback;
+  const normalized = Math.trunc(parsed);
+  if (normalized < min) return min;
+  if (normalized > max) return max;
+  return normalized;
+}
 
 export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams.get("q") ?? "";
-  const limit = Number(request.nextUrl.searchParams.get("limit") ?? "20");
-  const offset = Number(request.nextUrl.searchParams.get("offset") ?? "0");
+  const rawStatusScope = request.nextUrl.searchParams.get("status_scope");
+  const statusScope: DashboardStatusScope =
+    rawStatusScope && STATUS_SCOPES.includes(rawStatusScope as DashboardStatusScope)
+      ? (rawStatusScope as DashboardStatusScope)
+      : "all";
+  const assigneeScope = sanitizeAssigneeScope(request.nextUrl.searchParams.get("assignee_scope"));
+  const limit = sanitizePositiveInt(request.nextUrl.searchParams.get("limit"), 20, 1, 200);
+  const offset = sanitizePositiveInt(request.nextUrl.searchParams.get("offset"), 0, 0, 100000);
 
   const result = await runWithWorkspaceSession(request, async (workspaceContext) => {
     await assertAccess(workspaceContext, "orders.read");
-    return listWorkOrders(workspaceContext, { q, limit, offset });
+    return listWorkOrders(workspaceContext, { q, status_scope: statusScope, assignee_scope: assigneeScope, limit, offset });
   });
   if ("status" in result) {
     return result;
@@ -33,6 +70,7 @@ export async function POST(request: NextRequest) {
     description?: string;
     total_amount?: number;
     assigned_employee_id?: string | null;
+    assigned_employee_ids?: string[];
     status?: "new" | "in_progress" | "completed_unpaid" | "completed_paid" | "cancelled";
   };
   try {
@@ -42,15 +80,16 @@ export async function POST(request: NextRequest) {
       description?: string;
       total_amount?: number;
       assigned_employee_id?: string | null;
+      assigned_employee_ids?: string[];
       status?: "new" | "in_progress" | "completed_unpaid" | "completed_paid" | "cancelled";
     };
   } catch {
     return NextResponse.json({ message: "Invalid request payload" }, { status: 400 });
   }
 
-  if (!payload.client_id || !payload.vehicle_id || !payload.description || !payload.total_amount) {
+  if (!payload.client_id || !payload.vehicle_id || !payload.description) {
     return NextResponse.json(
-      { message: "client_id, vehicle_id, description and total_amount are required" },
+      { message: "client_id, vehicle_id and description are required" },
       { status: 400 }
     );
   }
@@ -63,8 +102,9 @@ export async function POST(request: NextRequest) {
         client_id: payload.client_id!,
         vehicle_id: payload.vehicle_id!,
         description: payload.description!.trim(),
-        total_amount: Number(payload.total_amount),
+        total_amount: payload.total_amount !== undefined ? Number(payload.total_amount) : undefined,
         assigned_employee_id: payload.assigned_employee_id ?? null,
+        assigned_employee_ids: payload.assigned_employee_ids ?? undefined,
         status: payload.status ?? "new"
       },
       { idempotencyKey }

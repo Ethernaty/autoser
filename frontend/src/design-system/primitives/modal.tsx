@@ -29,7 +29,7 @@ export function Modal({ open, onOpenChange, title, description, footer, size = "
         <Dialog.Overlay className="fixed inset-0 z-40 bg-neutral-900/50" />
         <Dialog.Content
           className={cn(
-            "fixed left-1/2 top-1/2 z-50 w-[calc(100%-32px)] -translate-x-1/2 -translate-y-1/2 rounded-md border border-neutral-200 bg-neutral-0 p-3 shadow-md",
+            "fixed left-1/2 top-1/2 z-50 flex max-h-[90vh] w-[calc(100%-24px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-md border border-neutral-200 bg-neutral-0 p-3 shadow-md sm:w-[calc(100%-32px)]",
             sizeClass[size]
           )}
           onInteractOutside={(event) => {
@@ -41,8 +41,8 @@ export function Modal({ open, onOpenChange, title, description, footer, size = "
         >
           {title ? <Dialog.Title className="text-xl leading-[28px] font-semibold text-neutral-900">{title}</Dialog.Title> : null}
           {description ? <Dialog.Description className="mt-1 text-sm text-neutral-600">{description}</Dialog.Description> : null}
-          <div className="mt-3">{children}</div>
-          {footer ? <div className="mt-3 border-t border-neutral-200 pt-2">{footer}</div> : null}
+          <div className="mt-3 min-h-0 overflow-y-auto pr-1">{children}</div>
+          {footer ? <div className="mt-3 border-t border-neutral-200 pb-[max(0px,env(safe-area-inset-bottom))] pt-2">{footer}</div> : null}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

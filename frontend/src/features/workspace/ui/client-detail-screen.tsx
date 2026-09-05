@@ -104,10 +104,10 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
                       <span className="text-neutral-500">{t("clients.form.source")}:</span> {clientQuery.data.source ?? t("common.not_provided")}
                     </p>
                     <p>
-                      <span className="text-neutral-500">{t("common.vehicles")}:</span> {vehiclesQuery.data?.length ?? 0}
+                      <span className="text-neutral-500">{t("common.vehicles")}:</span> {clientQuery.data.vehicle_count ?? 0}
                     </p>
                     <p>
-                      <span className="text-neutral-500">{t("client_detail.visits")}:</span> {historyQuery.data?.length ?? 0}
+                      <span className="text-neutral-500">{t("client_detail.visits")}:</span> {clientQuery.data.work_order_count ?? 0}
                     </p>
                   </div>
                 </Card>
