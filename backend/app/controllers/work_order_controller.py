@@ -109,6 +109,7 @@ def _to_work_order_response(
         estimated_amount=order.estimated_amount,
         diagnosis=order.diagnosis,
         intake_notes=order.intake_notes,
+        attachments=order.attachments,
         total_amount=order.total_amount,
         price=order.total_amount,
         status=order.status,
@@ -176,6 +177,7 @@ async def create_work_order(
         estimated_amount=payload.estimated_amount,
         diagnosis=payload.diagnosis,
         intake_notes=payload.intake_notes,
+        attachments=[item.model_dump(mode="json") for item in payload.attachments],
     )
     financials = await service.get_financials(work_order_id=order.id)
     assignee_ids = await service.get_assignee_ids(work_order_id=order.id)

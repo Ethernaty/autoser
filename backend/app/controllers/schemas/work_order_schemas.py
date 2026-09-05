@@ -5,10 +5,19 @@ from decimal import Decimal
 from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from typing import Literal
 
 from app.models.order import OrderStatus
 from app.models.order_line import OrderLineType
 from app.models.payment import PaymentMethod
+
+
+class OrderAttachment(BaseModel):
+    id: UUID | None = None
+    name: str = Field(min_length=1, max_length=120)
+    content_type: Literal["image/png", "image/jpeg", "image/webp"]
+    data_url: str = Field(min_length=20, max_length=700_000)
+    created_at: datetime | None = None
 
 
 class IntakeDetails(BaseModel):
@@ -17,6 +26,7 @@ class IntakeDetails(BaseModel):
     estimated_amount: Decimal | None = Field(default=None, ge=0, le=9999999999)
     diagnosis: str | None = Field(default=None, max_length=5000)
     intake_notes: str | None = Field(default=None, max_length=5000)
+    attachments: list[OrderAttachment] = Field(default_factory=list, max_length=5)
 
 
 class WorkOrderCreateRequest(IntakeDetails):
@@ -224,6 +234,9 @@ class WorkOrderHistoryItemResponse(BaseModel):
     vehicle_make_model: str | None = None
     description: str
     work_summary: str | None = None
+    mileage: int | None = None
+    due_at: datetime | None = None
+    diagnosis: str | None = None
     status: OrderStatus
     total_amount: Decimal
     paid_amount: Decimal

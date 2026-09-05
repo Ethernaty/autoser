@@ -17,6 +17,7 @@ import { useI18n } from "@/shared/i18n";
 const LOOKUP_LIMIT = 50;
 
 type IntakeMode = "select" | "create";
+type IntakePhoto = { name: string; content_type: "image/png" | "image/jpeg" | "image/webp"; data_url: string };
 
 type CreateWorkOrderForm = {
   client_id: string;
@@ -48,12 +49,12 @@ function defaultWorkOrderForm(): CreateWorkOrderForm {
     client_id: "",
     vehicle_id: "",
     assigned_employee_id: "",
-    description: ""
-    ,diagnosis: ""
-    ,mileage: ""
-    ,due_at: ""
-    ,estimated_amount: ""
-    ,intake_notes: ""
+    description: "",
+    diagnosis: "",
+    mileage: "",
+    due_at: "",
+    estimated_amount: "",
+    intake_notes: ""
   };
 }
 
@@ -109,6 +110,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
   const [formError, setFormError] = useState<string | null>(null);
   const [clientSearch, setClientSearch] = useState("");
   const [draftRestored, setDraftRestored] = useState(false);
+  const [photos, setPhotos] = useState<IntakePhoto[]>([]);
 
   useEffect(() => {
     const preselectedClient = searchParams.get("client_id") ?? "";
@@ -335,6 +337,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
       due_at: workOrderForm.due_at ? new Date(workOrderForm.due_at).toISOString() : null,
       estimated_amount: workOrderForm.estimated_amount ? Number(workOrderForm.estimated_amount) : null,
       intake_notes: workOrderForm.intake_notes.trim() || null,
+      attachments: photos,
       assigned_employee_id: workOrderForm.assigned_employee_id || null,
       status: "new"
     });
@@ -467,7 +470,6 @@ export function WorkOrderIntakeScreen(): JSX.Element {
 
         <section
           ref={vehicleSectionRef}
-          aria-disabled={!isVehicleStepActive}
           className={cn("space-y-1.5 border-b border-neutral-200 pb-3 transition-opacity", !isVehicleStepActive && "opacity-50")}
         >
           <div className="flex flex-wrap items-center justify-between gap-1.5">
@@ -562,7 +564,6 @@ export function WorkOrderIntakeScreen(): JSX.Element {
 
         <section
           ref={workOrderSectionRef}
-          aria-disabled={!isWorkOrderStepActive}
           className={cn("grid grid-cols-1 gap-1.5 pb-3 transition-opacity md:grid-cols-2", !isWorkOrderStepActive && "opacity-50")}
         >
           <p className="flex items-center gap-1.5 text-sm font-semibold text-neutral-900 md:col-span-2">
@@ -615,6 +616,39 @@ export function WorkOrderIntakeScreen(): JSX.Element {
               </FormField>
               <FormField id="intake_notes" label={t("work_order_intake.intake_notes")}>
                 <Textarea id="intake_notes" value={workOrderForm.intake_notes} onChange={(event) => setWorkOrderForm((prev) => ({ ...prev, intake_notes: event.target.value }))} />
+              </FormField>
+              <FormField id="intake-photos" label={t("work_order_intake.photos")} className="md:col-span-2">
+                <Input
+                  id="intake-photos"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  multiple
+                  onChange={(event) => {
+                    const files = Array.from(event.target.files ?? []);
+                    if (photos.length + files.length > 5 || files.some((file) => file.size > 500_000)) {
+                      setFormError(t("work_order_intake.photos_error"));
+                      event.target.value = "";
+                      return;
+                    }
+                    void Promise.all(files.map((file) => new Promise<IntakePhoto>((resolve, reject) => {
+                      const reader = new FileReader();
+                      reader.onload = () => resolve({ name: file.name, content_type: file.type as IntakePhoto["content_type"], data_url: String(reader.result) });
+                      reader.onerror = reject;
+                      reader.readAsDataURL(file);
+                    }))).then((items) => { setPhotos((current) => [...current, ...items]); setFormError(null); }).catch(() => setFormError(t("work_order_intake.photos_error")));
+                  }}
+                />
+                {photos.length ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {photos.map((photo, index) => (
+                      <div key={`${photo.name}-${index}`} className="relative h-20 w-20 overflow-hidden rounded-md border border-neutral-200">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={photo.data_url} alt={photo.name} className="h-full w-full object-cover" />
+                        <button type="button" aria-label={t("common.remove")} className="absolute right-1 top-1 rounded bg-neutral-900/70 px-1 text-xs text-white" onClick={() => setPhotos((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </FormField>
             </>
           )}

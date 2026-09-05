@@ -280,6 +280,7 @@ export type IntakeDetails = {
   estimated_amount?: number | string | null;
   diagnosis?: string | null;
   intake_notes?: string | null;
+  attachments?: Array<{ id?: string | null; name: string; content_type: "image/png" | "image/jpeg" | "image/webp"; data_url: string; created_at?: string | null }>;
 };
 
 export type WorkOrderRecord = IntakeDetails & {
@@ -400,6 +401,9 @@ export type WorkOrderHistoryItem = {
   vehicle_make_model: string | null;
   description: string;
   work_summary: string | null;
+  mileage: number | null;
+  due_at: string | null;
+  diagnosis: string | null;
   status: WorkOrderStatus;
   total_amount: string;
   paid_amount: string;

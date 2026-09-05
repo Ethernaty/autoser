@@ -775,6 +775,19 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                     </div>
                     {workOrderQuery.data.diagnosis ? <p className="text-xs text-neutral-700"><strong>{t("work_order_intake.diagnosis")}:</strong> {workOrderQuery.data.diagnosis}</p> : null}
                     {workOrderQuery.data.intake_notes ? <p className="text-xs text-neutral-700"><strong>{t("work_order_intake.intake_notes")}:</strong> {workOrderQuery.data.intake_notes}</p> : null}
+                    {workOrderQuery.data.attachments?.length ? (
+                      <div className="pt-2">
+                        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-600">{t("work_order_intake.photos")}</p>
+                        <div className="flex flex-wrap gap-2">
+                          {workOrderQuery.data.attachments.map((attachment, index) => (
+                            <a key={attachment.id ?? `${attachment.name}-${index}`} href={attachment.data_url} target="_blank" rel="noreferrer" className="block h-24 w-24 overflow-hidden rounded-md border border-neutral-200">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={attachment.data_url} alt={attachment.name} className="h-full w-full object-cover" />
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="space-y-1 rounded-md border border-neutral-100 bg-neutral-50/60 p-2">

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import and_, delete, exists, func, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -136,6 +136,7 @@ class WorkOrderService(BaseService):
         estimated_amount: Decimal | None = None,
         diagnosis: str | None = None,
         intake_notes: str | None = None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> Order:
         normalized_description = self._normalize_description(description)
         normalized_total = self._normalize_total_amount_for_intake(total_amount)
@@ -143,6 +144,7 @@ class WorkOrderService(BaseService):
         normalized_assignee_ids = self._normalize_assignee_ids(
             assigned_user_ids if assigned_user_ids is not None else ([assigned_user_id] if assigned_user_id is not None else [])
         )
+        normalized_attachments = self._normalize_attachments(attachments or [])
 
         def write_op(db: Session) -> Order:
             if normalized_status in {OrderStatus.COMPLETED_UNPAID, OrderStatus.COMPLETED_PAID, OrderStatus.CANCELLED}:
@@ -173,6 +175,7 @@ class WorkOrderService(BaseService):
                 estimated_amount=estimated_amount,
                 diagnosis=diagnosis,
                 intake_notes=intake_notes,
+                attachments=normalized_attachments,
                 total_amount=normalized_total,
                 status=normalized_status,
             )
@@ -809,6 +812,25 @@ class WorkOrderService(BaseService):
             return payment
 
         return await self.execute_write(write_op, idempotent=False)
+
+    @staticmethod
+    def _normalize_attachments(items: list[dict[str, Any]]) -> list[dict[str, str]]:
+        if len(items) > 5:
+            raise AppError(status_code=400, code="too_many_attachments", message="No more than 5 photos are allowed")
+        result: list[dict[str, str]] = []
+        allowed = {"image/png": "data:image/png;base64,", "image/jpeg": "data:image/jpeg;base64,", "image/webp": "data:image/webp;base64,"}
+        total_size = 0
+        for item in items:
+            content_type = str(item.get("content_type", ""))
+            data_url = str(item.get("data_url", ""))
+            name = sanitize_text(str(item.get("name", "photo")), max_length=120) or "photo"
+            if content_type not in allowed or not data_url.startswith(allowed[content_type]):
+                raise AppError(status_code=400, code="invalid_attachment", message="Only PNG, JPEG and WebP photos are supported")
+            total_size += len(data_url)
+            if len(data_url) > 700_000 or total_size > 2_000_000:
+                raise AppError(status_code=400, code="attachment_too_large", message="Photo attachments are too large")
+            result.append({"id": str(uuid4()), "name": name, "content_type": content_type, "data_url": data_url, "created_at": datetime.now(UTC).isoformat()})
+        return result
 
     async def get_assignee_ids(self, *, work_order_id: UUID) -> list[UUID]:
         mapping = await self.get_assignee_ids_map(work_order_ids=[work_order_id])

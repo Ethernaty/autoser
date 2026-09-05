@@ -76,6 +76,7 @@ export async function POST(request: NextRequest) {
     estimated_amount?: number | string | null;
     diagnosis?: string | null;
     intake_notes?: string | null;
+    attachments?: Array<{ name: string; content_type: "image/png" | "image/jpeg" | "image/webp"; data_url: string }>;
     client_id?: string;
     vehicle_id?: string;
     description?: string;
@@ -87,11 +88,12 @@ export async function POST(request: NextRequest) {
   try {
     payload = (await request.json()) as {
       mileage?: number | null;
-    due_at?: string | null;
-    estimated_amount?: number | string | null;
-    diagnosis?: string | null;
-    intake_notes?: string | null;
-    client_id?: string;
+      due_at?: string | null;
+      estimated_amount?: number | string | null;
+      diagnosis?: string | null;
+      intake_notes?: string | null;
+      attachments?: Array<{ name: string; content_type: "image/png" | "image/jpeg" | "image/webp"; data_url: string }>;
+      client_id?: string;
       vehicle_id?: string;
       description?: string;
       total_amount?: number;
@@ -120,6 +122,7 @@ export async function POST(request: NextRequest) {
         estimated_amount: payload.estimated_amount,
         diagnosis: payload.diagnosis,
         intake_notes: payload.intake_notes,
+        attachments: payload.attachments,
         client_id: payload.client_id!,
         vehicle_id: payload.vehicle_id!,
         description: payload.description!.trim(),
