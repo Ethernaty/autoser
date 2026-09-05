@@ -30,6 +30,8 @@ class EmployeeRecord:
     email: str
     role: MembershipRole
     is_active: bool
+    job_title: str | None
+    can_accept_payments: bool
     version: int
     created_at: datetime
 
@@ -98,10 +100,12 @@ class EmployeeService(BaseService):
                     EmployeeRecord(
                         user_id=user.id,
                         tenant_id=membership.tenant_id,
-                        full_name=user.full_name,
+                        full_name=membership.display_name or user.full_name,
                         email=user.email,
                         role=membership.role,
-                        is_active=bool(user.is_active),
+                        is_active=bool(membership.is_active),
+                        job_title=membership.job_title,
+                        can_accept_payments=bool(membership.can_accept_payments),
                         version=int(membership.version),
                         created_at=user.created_at,
                     )
@@ -143,10 +147,12 @@ class EmployeeService(BaseService):
             return EmployeeRecord(
                 user_id=user.id,
                 tenant_id=membership.tenant_id,
-                full_name=user.full_name,
+                full_name=membership.display_name or user.full_name,
                 email=user.email,
                 role=membership.role,
-                is_active=bool(user.is_active),
+                is_active=bool(membership.is_active),
+                job_title=membership.job_title,
+                can_accept_payments=bool(membership.can_accept_payments),
                 version=int(membership.version),
                 created_at=user.created_at,
             )
@@ -160,12 +166,15 @@ class EmployeeService(BaseService):
         full_name: str | None,
         password: str,
         role: str,
+        job_title: str | None = None,
+        can_accept_payments: bool = False,
         idempotency_key: str | None = None,
     ) -> EmployeeRecord:
         normalized_email = self._normalize_email(email) if email is not None and email.strip() else None
         normalized_full_name = self._normalize_full_name(full_name)
         normalized_password = self._normalize_password(password)
         normalized_role = self._normalize_role(role)
+        normalized_job_title = self._normalize_job_title(job_title)
 
         idempotency_decision: IdempotencyDecision | None = None
         if idempotency_key and idempotency_key.strip() and self.actor_user_id is not None:
@@ -174,6 +183,8 @@ class EmployeeService(BaseService):
                     "email": normalized_email,
                     "full_name": normalized_full_name,
                     "role": normalized_role.value,
+                    "job_title": normalized_job_title,
+                    "can_accept_payments": can_accept_payments,
                 }
             )
             idempotency_decision = await self.idempotency_service.begin(
@@ -193,6 +204,8 @@ class EmployeeService(BaseService):
                     email=idempotency_decision.response_payload["email"],
                     role=MembershipRole(idempotency_decision.response_payload["role"]),
                     is_active=bool(idempotency_decision.response_payload["is_active"]),
+                    job_title=idempotency_decision.response_payload.get("job_title"),
+                    can_accept_payments=bool(idempotency_decision.response_payload.get("can_accept_payments", False)),
                     version=int(idempotency_decision.response_payload["version"]),
                     created_at=idempotency_decision.response_payload["created_at"],
                 )
@@ -212,18 +225,19 @@ class EmployeeService(BaseService):
                     tenant_id=self.tenant_id,
                     role=normalized_role,
                 )
-                if not existing_user.is_active:
-                    existing_user.is_active = True
-                if normalized_full_name:
-                    existing_user.full_name = normalized_full_name
+                membership.display_name = normalized_full_name
+                membership.job_title = normalized_job_title
+                membership.can_accept_payments = can_accept_payments
 
                 return EmployeeRecord(
                     user_id=existing_user.id,
                     tenant_id=membership.tenant_id,
-                    full_name=existing_user.full_name,
+                    full_name=membership.display_name or existing_user.full_name,
                     email=existing_user.email,
                     role=membership.role,
-                    is_active=bool(existing_user.is_active),
+                    is_active=bool(membership.is_active),
+                    job_title=membership.job_title,
+                    can_accept_payments=bool(membership.can_accept_payments),
                     version=int(membership.version),
                     created_at=existing_user.created_at,
                 )
@@ -236,14 +250,19 @@ class EmployeeService(BaseService):
                 is_active=True,
             )
             membership = auth_repo.create_membership(user_id=user.id, tenant_id=self.tenant_id, role=normalized_role)
+            membership.display_name = normalized_full_name
+            membership.job_title = normalized_job_title
+            membership.can_accept_payments = can_accept_payments
 
             return EmployeeRecord(
                 user_id=user.id,
                 tenant_id=membership.tenant_id,
-                full_name=user.full_name,
+                full_name=membership.display_name or user.full_name,
                 email=user.email,
                 role=membership.role,
-                is_active=bool(user.is_active),
+                is_active=bool(membership.is_active),
+                job_title=membership.job_title,
+                can_accept_payments=bool(membership.can_accept_payments),
                 version=int(membership.version),
                 created_at=user.created_at,
             )
@@ -279,13 +298,16 @@ class EmployeeService(BaseService):
         password: str | None = None,
         role: str | None = None,
         is_active: bool | None = None,
+        job_title: str | None = None,
+        can_accept_payments: bool | None = None,
     ) -> EmployeeRecord:
         normalized_full_name = self._normalize_full_name(full_name) if full_name is not None else None
         normalized_email = self._normalize_email(email) if email is not None else None
         normalized_password = self._normalize_password(password) if password is not None else None
         normalized_role = self._normalize_role(role) if role is not None else None
+        normalized_job_title = self._normalize_job_title(job_title) if job_title is not None else None
 
-        if normalized_full_name is None and normalized_email is None and normalized_password is None and normalized_role is None and is_active is None:
+        if normalized_full_name is None and normalized_email is None and normalized_password is None and normalized_role is None and is_active is None and job_title is None and can_accept_payments is None:
             raise AppError(status_code=400, code="empty_update", message="No fields provided for update")
 
         def write_op(db: Session) -> EmployeeRecord:
@@ -300,25 +322,35 @@ class EmployeeService(BaseService):
                     raise AppError(status_code=409, code="email_already_exists", message="Email already exists")
                 user.email = normalized_email
             if normalized_full_name is not None:
-                user.full_name = normalized_full_name
+                membership.display_name = normalized_full_name
 
             if normalized_password is not None:
                 user.password_hash = self.password_hasher.hash(normalized_password)
 
             if normalized_role is not None:
+                self._guard_owner_access_change(db, membership, next_role=normalized_role, next_active=is_active)
                 membership.role = normalized_role
 
             if is_active is not None:
-                user.is_active = bool(is_active)
+                self._guard_owner_access_change(db, membership, next_role=normalized_role, next_active=is_active)
+                membership.is_active = bool(is_active)
+                if is_active:
+                    user.is_active = True
+            if job_title is not None:
+                membership.job_title = normalized_job_title
+            if can_accept_payments is not None:
+                membership.can_accept_payments = bool(can_accept_payments)
 
             db.flush()
             return EmployeeRecord(
                 user_id=user.id,
                 tenant_id=membership.tenant_id,
-                full_name=user.full_name,
+                full_name=membership.display_name or user.full_name,
                 email=user.email,
                 role=membership.role,
-                is_active=bool(user.is_active),
+                is_active=bool(membership.is_active),
+                job_title=membership.job_title,
+                can_accept_payments=bool(membership.can_accept_payments),
                 version=int(membership.version),
                 created_at=user.created_at,
             )
@@ -341,6 +373,7 @@ class EmployeeService(BaseService):
                         .where(
                             Membership.tenant_id == self.tenant_id,
                             Membership.role == MembershipRole.OWNER,
+                            Membership.is_active.is_(True),
                         )
                     ).scalar_one()
                 )
@@ -375,6 +408,32 @@ class EmployeeService(BaseService):
         if len(normalized) < 8 or len(normalized) > 128:
             raise AppError(status_code=400, code="invalid_password", message="Password must be 8-128 characters")
         return normalized
+
+    @staticmethod
+    def _normalize_job_title(value: str | None) -> str | None:
+        normalized = (value or "").strip()
+        return normalized[:120] or None
+
+    def _guard_owner_access_change(
+        self,
+        db: Session,
+        membership: Membership,
+        *,
+        next_role: MembershipRole | None,
+        next_active: bool | None,
+    ) -> None:
+        removes_owner = membership.role == MembershipRole.OWNER and (
+            (next_role is not None and next_role != MembershipRole.OWNER) or next_active is False
+        )
+        if not removes_owner:
+            return
+        active_owners = int(db.execute(select(func.count()).select_from(Membership).where(
+            Membership.tenant_id == self.tenant_id,
+            Membership.role == MembershipRole.OWNER,
+            Membership.is_active.is_(True),
+        )).scalar_one())
+        if active_owners <= 1:
+            raise AppError(status_code=400, code="last_owner_access_forbidden", message="At least one active owner is required")
 
     @staticmethod
     def _normalize_email(value: str) -> str:

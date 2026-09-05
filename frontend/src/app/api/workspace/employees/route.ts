@@ -44,6 +44,8 @@ export async function POST(request: NextRequest) {
     email?: string;
     password?: string;
     role?: string;
+    job_title?: string | null;
+    can_accept_payments?: boolean;
   };
   try {
     payload = (await request.json()) as {
@@ -51,6 +53,8 @@ export async function POST(request: NextRequest) {
       email?: string;
       password?: string;
       role?: string;
+      job_title?: string | null;
+      can_accept_payments?: boolean;
     };
   } catch {
     return NextResponse.json({ message: "Invalid request payload" }, { status: 400 });
@@ -64,7 +68,7 @@ export async function POST(request: NextRequest) {
     await assertAccess(workspaceContext, "employees.create");
     return createEmployee(
       workspaceContext,
-      { full_name: payload.full_name!, email: payload.email ?? null, password: payload.password!, role: payload.role! },
+      { full_name: payload.full_name!, email: payload.email ?? null, password: payload.password!, role: payload.role!, job_title: payload.job_title, can_accept_payments: payload.can_accept_payments },
       { idempotencyKey }
     );
   });

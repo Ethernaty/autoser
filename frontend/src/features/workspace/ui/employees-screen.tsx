@@ -29,6 +29,8 @@ type EmployeeForm = {
   password: string;
   password_confirm: string;
   role: string;
+  job_title: string;
+  can_accept_payments: boolean;
 };
 
 function defaultEmployeeForm(): EmployeeForm {
@@ -37,7 +39,9 @@ function defaultEmployeeForm(): EmployeeForm {
     email: "",
     password: "",
     password_confirm: "",
-    role: "employee"
+    role: "employee",
+    job_title: "",
+    can_accept_payments: false
   };
 }
 
@@ -287,7 +291,9 @@ export function EmployeesScreen(): JSX.Element {
       email: employee.email,
       password: "",
       password_confirm: "",
-      role: employee.role
+      role: employee.role,
+      job_title: employee.job_title ?? "",
+      can_accept_payments: employee.can_accept_payments
     });
     setShowPassword(false);
     setShowPasswordConfirm(false);
@@ -331,7 +337,12 @@ export function EmployeesScreen(): JSX.Element {
         id: "role",
         header: t("employees.table.role"),
         minWidth: 120,
-        cell: (row) => <Badge tone={roleTone(row.role)}>{t(`employees.role.${row.role}`)}</Badge>
+        cell: (row) => (
+          <div>
+            {row.job_title ? <p className="mb-1 text-xs text-neutral-600">{row.job_title}</p> : null}
+            <Badge tone={roleTone(row.role)}>{t(`employees.role.${row.role}`)}</Badge>
+          </div>
+        )
       },
       {
         id: "status",
@@ -395,6 +406,8 @@ export function EmployeesScreen(): JSX.Element {
           full_name: form.full_name.trim(),
           email: normalizedEmail || undefined,
           role: form.role,
+          job_title: form.job_title.trim() || null,
+          can_accept_payments: form.can_accept_payments,
           password: normalizedPassword ? normalizedPassword : undefined
         }
       });
@@ -403,7 +416,9 @@ export function EmployeesScreen(): JSX.Element {
         full_name: form.full_name.trim(),
         email: normalizedEmail || null,
         password: normalizedPassword,
-        role: form.role
+        role: form.role,
+        job_title: form.job_title.trim() || null,
+        can_accept_payments: form.can_accept_payments
       });
     }
 
@@ -456,6 +471,7 @@ export function EmployeesScreen(): JSX.Element {
                   >
                     <p className="truncate text-sm font-semibold text-neutral-900">{displayName}</p>
                     <p className="mt-1 truncate text-xs text-neutral-600">{employee.email}</p>
+                    {employee.job_title ? <p className="mt-1 truncate text-xs text-neutral-600">{employee.job_title}</p> : null}
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       <Badge tone={roleTone(employee.role)}>{t(`employees.role.${employee.role}`)}</Badge>
                       {employee.is_active ? (
@@ -579,7 +595,10 @@ export function EmployeesScreen(): JSX.Element {
               onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
             />
           </FormField>
-          <FormField id="employee-role" label={t("employees.form.position")} required>
+          <FormField id="employee-job-title" label={t("employees.form.position")}>
+            <Input id="employee-job-title" value={form.job_title} placeholder={t("employees.form.position_placeholder")} onChange={(event) => setForm((prev) => ({ ...prev, job_title: event.target.value }))} />
+          </FormField>
+          <FormField id="employee-role" label={t("employees.form.access_role")} required>
             <Select id="employee-role" value={form.role} onChange={(event) => setForm((prev) => ({ ...prev, role: event.target.value }))}>
               <option value="owner">{t("employees.role.owner")}</option>
               <option value="admin">{t("employees.role.admin")}</option>
@@ -587,6 +606,10 @@ export function EmployeesScreen(): JSX.Element {
               <option value="employee">{t("employees.role.employee")}</option>
             </Select>
           </FormField>
+          <label className="flex items-center gap-2 text-sm text-neutral-700">
+            <input type="checkbox" checked={form.can_accept_payments} onChange={(event) => setForm((prev) => ({ ...prev, can_accept_payments: event.target.checked }))} />
+            {t("employees.form.can_accept_payments")}
+          </label>
           <FormField id="employee-password" label={editingEmployee ? t("employees.form.password_optional") : t("common.password")} required={!editingEmployee}>
             <div className="relative">
               <Input

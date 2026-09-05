@@ -155,6 +155,7 @@ export type WorkspaceSettingsResponse = {
   timezone: string;
   currency: string;
   working_hours_note: string | null;
+  logo_data_url: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -166,6 +167,7 @@ export type WorkspaceSettingsUpdatePayload = {
   timezone?: string;
   currency?: string;
   working_hours_note?: string | null;
+  logo_data_url?: string | null;
 };
 
 export type ClientRecord = {
@@ -247,6 +249,8 @@ export type EmployeeRecord = {
   email: string;
   role: string;
   is_active: boolean;
+  job_title: string | null;
+  can_accept_payments: boolean;
   version: number;
   created_at: string;
 };
@@ -256,6 +260,8 @@ export type EmployeeCreatePayload = {
   email?: string | null;
   password: string;
   role: string;
+  job_title?: string | null;
+  can_accept_payments?: boolean;
 };
 
 export type EmployeeUpdatePayload = {
@@ -264,6 +270,8 @@ export type EmployeeUpdatePayload = {
   password?: string;
   role?: string;
   is_active?: boolean;
+  job_title?: string | null;
+  can_accept_payments?: boolean;
 };
 
 export type IntakeDetails = {
@@ -411,6 +419,13 @@ export type SupportTicketRecord = {
   subject: string;
   category: SupportTicketCategory;
   message: string;
+  messages: Array<{
+    id: string;
+    author_user_id: string;
+    author_role: string;
+    message: string;
+    created_at: string;
+  }>;
   status: SupportTicketStatus;
   created_at: string;
   updated_at: string;

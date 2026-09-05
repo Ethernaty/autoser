@@ -42,6 +42,8 @@ def _to_response(employee: EmployeeRecord) -> EmployeeResponse:
         email=employee.email,
         role=employee.role.value,
         is_active=employee.is_active,
+        job_title=employee.job_title,
+        can_accept_payments=employee.can_accept_payments,
         version=employee.version,
         created_at=employee.created_at,
     )
@@ -100,6 +102,8 @@ async def create_employee(
         full_name=payload.full_name,
         password=payload.password,
         role=payload.role,
+        job_title=payload.job_title,
+        can_accept_payments=payload.can_accept_payments,
         idempotency_key=idempotency_key,
     )
     return _to_response(employee)
@@ -128,6 +132,8 @@ async def update_employee(
         password=payload.password,
         role=payload.role,
         is_active=payload.is_active,
+        job_title=payload.job_title,
+        can_accept_payments=payload.can_accept_payments,
     )
     return _to_response(employee)
 

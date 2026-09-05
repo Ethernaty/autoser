@@ -111,6 +111,8 @@ class AuthService:
                 raise
             if tenant.state.value != "active":
                 raise AppError(status_code=403, code="tenant_inactive", message="Tenant access is restricted")
+            if not membership.is_active:
+                raise AppError(status_code=403, code="membership_inactive", message="Workspace access is disabled")
 
             tokens = self.jwt_service.issue_token_pair(
                 user_id=user.id,
@@ -135,6 +137,8 @@ class AuthService:
             memberships = auth_repo.list_memberships_for_user(user.id)
             result: list[WorkspaceMembership] = []
             for membership in memberships:
+                if not membership.is_active:
+                    continue
                 tenant = auth_repo.get_tenant_by_id(membership.tenant_id)
                 if tenant is None:
                     continue
@@ -166,6 +170,8 @@ class AuthService:
             membership = auth_repo.get_membership(user_id=user.id, tenant_id=workspace_id)
             if not membership:
                 raise AppError(status_code=403, code="workspace_forbidden", message="User has no access to workspace")
+            if not membership.is_active:
+                raise AppError(status_code=403, code="membership_inactive", message="Workspace access is disabled")
 
             tenant = auth_repo.get_tenant_by_id(workspace_id)
             if tenant is None:
@@ -198,6 +204,8 @@ class AuthService:
             membership = auth_repo.get_membership(user_id=user.id, tenant_id=payload.tenant_uuid)
             if not membership:
                 raise AuthError(code="membership_not_found", message="Membership not found")
+            if not membership.is_active:
+                raise AppError(status_code=403, code="membership_inactive", message="Workspace access is disabled")
 
             tenant = auth_repo.get_tenant_by_id(membership.tenant_id)
             if not tenant:
@@ -234,6 +242,8 @@ class AuthService:
             membership = auth_repo.get_membership(user_id=user.id, tenant_id=tenant_id)
             if not membership:
                 raise AppError(status_code=403, code="tenant_mismatch", message="User has no access to tenant")
+            if not membership.is_active:
+                raise AppError(status_code=403, code="membership_inactive", message="Workspace access is disabled")
 
             tenant = auth_repo.get_tenant_by_id(membership.tenant_id)
             if not tenant:
@@ -251,6 +261,8 @@ class AuthService:
             membership = auth_repo.get_membership(user_id=user_id, tenant_id=tenant_id)
             if not membership:
                 raise AppError(status_code=403, code="tenant_mismatch", message="User has no access to tenant")
+            if not membership.is_active:
+                raise AppError(status_code=403, code="membership_inactive", message="Workspace access is disabled")
             return membership
 
     def revoke_refresh_token(self, *, refresh_token: str) -> None:
@@ -275,8 +287,13 @@ class AuthService:
             membership = auth_repo.get_membership(user_id=user.id, tenant_id=tenant.id)
             if not membership:
                 raise AppError(status_code=403, code="membership_not_found", message="User has no access to tenant")
+            if not membership.is_active:
+                raise AppError(status_code=403, code="membership_inactive", message="Workspace access is disabled")
             return membership, tenant
 
+        memberships = [membership for membership in memberships if membership.is_active]
+        if not memberships:
+            raise AppError(status_code=403, code="no_memberships", message="User is not assigned to any active tenant")
         if len(memberships) > 1:
             raise AppError(
                 status_code=400,

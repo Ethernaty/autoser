@@ -5,8 +5,8 @@ from enum import Enum
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import DateTime, Enum as SQLEnum
-from sqlalchemy import ForeignKey, Index, Integer, UniqueConstraint, func, text
+from sqlalchemy import Boolean, DateTime, Enum as SQLEnum
+from sqlalchemy import ForeignKey, Index, Integer, String, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -47,6 +47,10 @@ class Membership(BaseModel):
         nullable=False,
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    job_title: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    display_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    can_accept_payments: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
