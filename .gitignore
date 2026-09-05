@@ -22,6 +22,11 @@ coverage/
 
 # Logs
 *.log
+*.logref
+
+# Local restore points and private exports
+.local-backups/
+*.dump
 
 # Env files
 .env
