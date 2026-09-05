@@ -49,7 +49,13 @@ export async function GET(request: NextRequest) {
 
   const result = await runWithWorkspaceSession(request, async (workspaceContext) => {
     await assertAccess(workspaceContext, "orders.read");
-    return listWorkOrders(workspaceContext, { q, status_scope: statusScope, assignee_scope: assigneeScope, limit, offset });
+    return listWorkOrders(workspaceContext, { q, status_scope: statusScope, assignee_scope: assigneeScope, limit, offset,
+      payment_scope: request.nextUrl.searchParams.get("payment_scope") ?? "all",
+      date_from: request.nextUrl.searchParams.get("date_from") ?? undefined,
+      date_to: request.nextUrl.searchParams.get("date_to") ?? undefined,
+      sort: request.nextUrl.searchParams.get("sort") ?? "updated_desc",
+      overdue: request.nextUrl.searchParams.get("overdue") === "true"
+    });
   });
   if ("status" in result) {
     return result;

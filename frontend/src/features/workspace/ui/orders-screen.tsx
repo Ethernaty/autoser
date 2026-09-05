@@ -22,7 +22,6 @@ import type { DashboardStatusScope, WorkOrderPaymentState, WorkOrderRecord, Work
 import { useI18n } from "@/shared/i18n";
 
 const PAGE_SIZE = 20;
-const FETCH_LIMIT = 50;
 const LOOKUP_LIMIT = 50;
 
 const STATUS_BADGE_TONE: Record<WorkOrderStatus, "neutral" | "warning" | "success" | "error"> = {
@@ -41,13 +40,14 @@ const STATUS_SORT_ORDER: Record<WorkOrderStatus, number> = {
   cancelled: 4
 };
 
-type PaymentScope = "all" | WorkOrderPaymentState;
+type PaymentScope = "all" | "outstanding" | WorkOrderPaymentState;
 type DateScope = "all" | "today" | "yesterday" | "7d" | "30d" | "this_month" | "last_month" | "custom";
 type SortScope = "updated_desc" | "created_desc" | "amount_desc" | "amount_asc" | "status";
 type SavedView = "all" | "active" | "unpaid" | "completed" | "mine" | "custom";
 
 type OrdersListState = {
   q: string;
+  overdue: boolean;
   page: number;
   statusScope: DashboardStatusScope;
   paymentScope: PaymentScope;
@@ -61,6 +61,7 @@ type OrdersListState = {
 
 const DEFAULT_STATE: OrdersListState = {
   q: "",
+  overdue: false,
   page: 1,
   statusScope: "all",
   paymentScope: "all",
@@ -120,38 +121,24 @@ function formatDate(value: string): string {
   return date.toLocaleDateString();
 }
 
-function matchesDateScope(row: WorkOrderRecord, dateScope: DateScope, from: string, to: string): boolean {
-  if (dateScope === "all") return true;
-
-  const source = row.updated_at || row.created_at;
-  const current = new Date(source);
-  if (Number.isNaN(current.getTime())) return false;
-
+function dateBounds(scope: DateScope, from: string, to: string): { date_from?: string; date_to?: string } {
+  if (scope === "all") return {};
   const now = new Date();
-  const rowTs = current.getTime();
-  const todayStart = toDateStart(now);
+  let start: Date | null = null;
+  let end: Date | null = null;
+  if (scope === "custom") { start = parseDateInput(from); end = parseDateInput(to); }
+  if (scope === "today") { start = new Date(now); end = new Date(now); }
+  if (scope === "yesterday") { start = new Date(now); start.setDate(start.getDate() - 1); end = new Date(start); }
+  if (scope === "7d" || scope === "30d") { start = new Date(now); start.setDate(start.getDate() - (scope === "7d" ? 6 : 29)); end = new Date(now); }
+  if (scope === "this_month") { start = new Date(now.getFullYear(), now.getMonth(), 1); end = new Date(now); }
+  if (scope === "last_month") { start = new Date(now.getFullYear(), now.getMonth() - 1, 1); end = new Date(now.getFullYear(), now.getMonth(), 0); }
+  return { date_from: start ? new Date(toDateStart(start)).toISOString() : undefined, date_to: end ? new Date(toDateEnd(end)).toISOString() : undefined };
+}
 
-  if (dateScope === "today") return rowTs >= todayStart;
-  if (dateScope === "yesterday") return rowTs >= todayStart - 24 * 60 * 60 * 1000 && rowTs < todayStart;
-  if (dateScope === "7d") return rowTs >= todayStart - 6 * 24 * 60 * 60 * 1000;
-  if (dateScope === "30d") return rowTs >= todayStart - 29 * 24 * 60 * 60 * 1000;
-  if (dateScope === "this_month") {
-    const start = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-    return rowTs >= start;
-  }
-  if (dateScope === "last_month") {
-    const start = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
-    const end = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-    return rowTs >= start && rowTs < end;
-  }
-
-  const fromDate = parseDateInput(from);
-  const toDate = parseDateInput(to);
-
-  if (!fromDate && !toDate) return true;
-  if (fromDate && rowTs < toDateStart(fromDate)) return false;
-  if (toDate && rowTs > toDateEnd(toDate)) return false;
-  return true;
+function csvCell(value: unknown): string {
+  const raw = String(value ?? "");
+  const safe = /^[=+@\-\t\r\n]/.test(raw) ? `'${raw}` : raw;
+  return `"${safe.replaceAll('"', '""')}"`;
 }
 
 function paymentStateLabel(state: WorkOrderPaymentState, t: (key: string) => string): string {
@@ -180,7 +167,7 @@ function isStatusScope(value: string | null): value is DashboardStatusScope {
 }
 
 function isPaymentScope(value: string | null): value is PaymentScope {
-  return value === "all" || value === "unpaid" || value === "partial" || value === "paid";
+  return value === "all" || value === "outstanding" || value === "unpaid" || value === "partial" || value === "paid";
 }
 
 function isDateScope(value: string | null): value is DateScope {
@@ -225,6 +212,7 @@ function parseStateFromUrl(searchParams: { get: (key: string) => string | null }
 
   return {
     q,
+    overdue: searchParams.get("overdue") === "true",
     page,
     statusScope: isStatusScope(statusRaw) ? statusRaw : DEFAULT_STATE.statusScope,
     paymentScope: isPaymentScope(paymentRaw) ? paymentRaw : DEFAULT_STATE.paymentScope,
@@ -550,6 +538,7 @@ export function OrdersScreen(): JSX.Element {
     (next: OrdersListState): void => {
       const params = new URLSearchParams(searchParams.toString());
 
+      if (next.overdue) params.set("overdue", "true"); else params.delete("overdue");
       if (next.q) params.set("q", next.q); else params.delete("q");
       if (next.page > 1) params.set("page", String(next.page)); else params.delete("page");
       if (next.statusScope !== "all") params.set("status_scope", next.statusScope); else params.delete("status_scope");
@@ -603,17 +592,50 @@ export function OrdersScreen(): JSX.Element {
     queryFn: fetchWorkspaceContext
   });
 
+  const registryParams = useMemo(() => ({
+    q: state.q, status_scope: state.statusScope, assignee_scope: state.assigneeScope,
+    payment_scope: state.paymentScope, sort: state.sortScope, overdue: state.overdue,
+    ...dateBounds(state.dateScope, state.dateFrom, state.dateTo),
+    limit: PAGE_SIZE, offset: (state.page - 1) * PAGE_SIZE
+  }), [state]);
   const workOrdersQuery = useQuery({
-    queryKey: mvpQueryKeys.workOrders(state.q, FETCH_LIMIT, 0, state.statusScope, state.assigneeScope),
-    queryFn: () =>
-      fetchWorkOrders({
-        q: state.q,
-        status_scope: state.statusScope,
-        assignee_scope: state.assigneeScope,
-        limit: FETCH_LIMIT,
-        offset: 0
-      })
+    queryKey: ["work-orders", "registry", registryParams],
+    queryFn: () => fetchWorkOrders(registryParams)
   });
+  const [savedFilters, setSavedFilters] = useState<Array<{ name: string; state: OrdersListState }>>([]);
+  const [filterName, setFilterName] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [preview, setPreview] = useState<WorkOrderRecord | null>(null);
+  const storageKey = workspaceContextQuery.data ? `orders-filters:${workspaceContextQuery.data.workspace_id}:${workspaceContextQuery.data.user_id}` : null;
+  useEffect(() => {
+    if (!storageKey) return;
+    try { setSavedFilters(JSON.parse(localStorage.getItem(storageKey) ?? "[]")); } catch { setSavedFilters([]); }
+  }, [storageKey]);
+  const persistFilters = (next: typeof savedFilters) => {
+    if (!storageKey) return;
+    try { localStorage.setItem(storageKey, JSON.stringify(next)); setSavedFilters(next); }
+    catch { setActionError("Не удалось сохранить фильтр в этом браузере"); }
+  };
+  const exportSelection = async () => {
+    setExporting(true); setActionError(null);
+    try {
+      const rows: WorkOrderRecord[] = [];
+      let offset = 0;
+      while (true) {
+        const page = await fetchWorkOrders({ ...registryParams, limit: 50, offset });
+        rows.push(...page.items); offset += page.items.length;
+        if (offset >= page.total || !page.items.length) break;
+      }
+      const fields = ["№", "Клиент", "Автомобиль", "Госномер", "Описание", "Статус", "Оплата", "Сумма", "Оплачено", "Остаток", "Создан", "Обновлён"];
+      const csv = [fields, ...rows.map(row => [row.order_number, row.client_name, row.vehicle_make_model, row.vehicle_plate_number,
+        row.description, t(`dashboard.status.${row.status}`), paymentStateLabel(row.payment_state, t), row.total_amount, row.paid_amount,
+        row.remaining_amount, row.created_at, row.updated_at])].map(row => row.map(csvCell).join(";")).join("\r\n");
+      const url = URL.createObjectURL(new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8;" }));
+      const link = document.createElement("a"); link.href = url; link.download = `orders-${new Date().toISOString().slice(0, 10)}.csv`; link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) { setActionError(error instanceof Error ? error.message : "Не удалось выгрузить заказы"); }
+    finally { setExporting(false); }
+  };
 
   const statusMutation = useMutation({
     mutationFn: ({ workOrderId, status }: { workOrderId: string; status: WorkOrderStatus }) => setWorkOrderStatus(workOrderId, status),
@@ -646,57 +668,21 @@ export function OrdersScreen(): JSX.Element {
     return matched?.employee_id ?? null;
   }, [employees, workspaceContextQuery.data?.user_id]);
 
-  const sortedAndFilteredRows = useMemo(() => {
-    const source = workOrdersQuery.data?.items ?? [];
-    const afterPayment = state.paymentScope === "all" ? source : source.filter((row) => row.payment_state === state.paymentScope);
-    const afterDate = afterPayment.filter((row) => matchesDateScope(row, state.dateScope, state.dateFrom, state.dateTo));
-
-    const sorted = [...afterDate];
-    sorted.sort((a, b) => {
-      if (state.sortScope === "created_desc") return Date.parse(b.created_at) - Date.parse(a.created_at);
-      if (state.sortScope === "amount_desc") return parseMoney(b.total_amount) - parseMoney(a.total_amount);
-      if (state.sortScope === "amount_asc") return parseMoney(a.total_amount) - parseMoney(b.total_amount);
-      if (state.sortScope === "status") return STATUS_SORT_ORDER[a.status] - STATUS_SORT_ORDER[b.status];
-      return Date.parse(b.updated_at) - Date.parse(a.updated_at);
-    });
-
-    return sorted;
-  }, [state.dateFrom, state.dateScope, state.dateTo, state.paymentScope, state.sortScope, workOrdersQuery.data?.items]);
-
-  const totalFiltered = sortedAndFilteredRows.length;
+  const totalFiltered = workOrdersQuery.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
-
   useEffect(() => {
-    if (state.page <= totalPages) return;
-    const next = { ...state, page: totalPages };
-    setState(next);
-    updateUrlState(next);
-  }, [state, totalPages, updateUrlState]);
-
-  const pagedRows = useMemo(() => {
-    const offset = (state.page - 1) * PAGE_SIZE;
-    return sortedAndFilteredRows.slice(offset, offset + PAGE_SIZE);
-  }, [sortedAndFilteredRows, state.page]);
-
-  const metrics = useMemo(() => {
-    const open = sortedAndFilteredRows.filter((row) => row.status === "new").length;
-    const inProgress = sortedAndFilteredRows.filter((row) => row.status === "in_progress").length;
-    const completed = sortedAndFilteredRows.filter((row) => row.status === "completed_unpaid" || row.status === "completed_paid").length;
-    const unpaid = sortedAndFilteredRows.filter((row) => row.payment_state !== "paid").length;
-
-    let revenue = 0;
-    let paid = 0;
-    sortedAndFilteredRows.forEach((row) => {
-      revenue += parseMoney(row.total_amount);
-      paid += parseMoney(row.paid_amount);
-    });
-
-    return { open, inProgress, completed, unpaid, revenue, paid };
-  }, [sortedAndFilteredRows]);
+    if (!workOrdersQuery.data || state.page <= totalPages) return;
+    const next = { ...state, page: totalPages }; setState(next); updateUrlState(next);
+  }, [state, totalPages, updateUrlState, workOrdersQuery.data]);
+  const pagedRows = workOrdersQuery.data?.items ?? [];
+  const summary = workOrdersQuery.data?.summary;
+  const metrics = { open: summary?.new_count ?? 0, inProgress: summary?.in_progress_count ?? 0,
+    completed: summary?.completed_count ?? 0, unpaid: summary?.unpaid_count ?? 0,
+    revenue: summary?.order_amount ?? 0, paid: summary?.paid_amount ?? 0 };
 
   const hasAnyFilterActive = useMemo(() => {
     return (
-      Boolean(state.q) ||
+      state.overdue || Boolean(state.q) ||
       state.statusScope !== "all" ||
       state.paymentScope !== "all" ||
       state.assigneeScope !== "all" ||
@@ -758,7 +744,7 @@ export function OrdersScreen(): JSX.Element {
       }
 
       if (view === "unpaid") {
-        applyState({ ...base, statusScope: "all", paymentScope: "unpaid", assigneeScope: "all" }, { keepView: true });
+        applyState({ ...base, statusScope: "all", paymentScope: "outstanding", assigneeScope: "all" }, { keepView: true });
         return;
       }
 
@@ -850,14 +836,13 @@ export function OrdersScreen(): JSX.Element {
     { value: "active", label: t("work_orders.view.active") },
     { value: "new", label: t("dashboard.status.new") },
     { value: "in_progress", label: t("dashboard.status.in_progress") },
-    { value: "completed_unpaid", label: t("dashboard.status.completed_unpaid_short") },
-    { value: "completed_paid", label: t("dashboard.status.completed_paid_short") },
     { value: "completed", label: t("work_orders.view.completed") },
     { value: "cancelled", label: t("dashboard.status.cancelled") }
   ];
 
   const paymentOptions: CompactOption<PaymentScope>[] = [
     { value: "all", label: t("work_orders.filter.payment_all") },
+    { value: "outstanding", label: "Есть задолженность" },
     { value: "unpaid", label: t("work_orders.payment_state.unpaid") },
     { value: "partial", label: t("work_orders.payment_state.partial") },
     { value: "paid", label: t("work_orders.payment_state.paid") }
@@ -1000,7 +985,7 @@ export function OrdersScreen(): JSX.Element {
           value={state.sortScope}
           options={sortOptions}
           active={state.sortScope !== "updated_desc"}
-          onChange={(next) => applyState({ sortScope: next })}
+          onChange={(next) => applyState({ sortScope: next }, { resetPage: true })}
         />
 
         {hasAnyFilterActive ? (
@@ -1016,7 +1001,7 @@ export function OrdersScreen(): JSX.Element {
     <PageLayout
       title={t("work_orders.title")}
       subtitle={t("work_orders.subtitle")}
-      actions={<Button variant="primary" onClick={() => router.push(ROUTES.workOrderNew as Route)}>{t("work_orders.new")}</Button>}
+      actions={<div className="flex gap-2"><Button variant="secondary" disabled={exporting} onClick={() => void exportSelection()}>{exporting ? "Выгружаем…" : "Экспорт CSV"}</Button><Button variant="primary" onClick={() => router.push(ROUTES.workOrderNew as Route)}>{t("work_orders.new")}</Button></div>}
     >
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -1037,6 +1022,11 @@ export function OrdersScreen(): JSX.Element {
           ))}
         </div>
 
+        <div className="flex flex-wrap gap-2 items-center">
+          <Input aria-label="Название фильтра" placeholder="Название своего фильтра" value={filterName} onChange={e => setFilterName(e.target.value)} className="max-w-56" />
+          <Button variant="secondary" disabled={!filterName.trim() || !storageKey} onClick={() => { persistFilters([...savedFilters.filter(x => x.name !== filterName.trim()), { name: filterName.trim(), state: { ...state, page: 1 } }]); setFilterName(""); }}>Сохранить фильтр</Button>
+          {savedFilters.map(filter => <span key={filter.name} className="flex rounded-lg border border-neutral-200"><Button size="sm" variant="ghost" onClick={() => { setSearchInput(filter.state.q); applyState(filter.state, { keepView: true }); }}>{filter.name}</Button><button className="px-2" aria-label={`Удалить фильтр ${filter.name}`} onClick={() => persistFilters(savedFilters.filter(x => x.name !== filter.name))}>×</button></span>)}
+        </div>
         <div className="hidden md:block">{toolbarContent}</div>
 
         <div className="md:hidden">
@@ -1050,10 +1040,9 @@ export function OrdersScreen(): JSX.Element {
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
-          <FilterChip label={t("work_orders.quick.open")} active={state.statusScope === "active"} onClick={() => setQuickToggle("open")} />
+          <FilterChip label="Просрочены" active={state.overdue} onClick={() => applyState({ overdue: !state.overdue }, { resetPage: true })} />
           <FilterChip label={t("work_orders.quick.in_progress")} active={state.statusScope === "in_progress"} onClick={() => setQuickToggle("in_progress")} />
           <FilterChip label={t("work_orders.quick.unassigned")} active={state.assigneeScope === "unassigned"} onClick={() => setQuickToggle("unassigned")} />
-          <FilterChip label={t("work_orders.quick.unpaid")} active={state.paymentScope === "unpaid"} onClick={() => setQuickToggle("unpaid")} />
           <FilterChip label={t("work_orders.quick.today")} active={state.dateScope === "today"} onClick={() => setQuickToggle("today")} />
         </div>
 
@@ -1068,6 +1057,8 @@ export function OrdersScreen(): JSX.Element {
           </div>
         </div>
 
+        <p className="text-xs text-neutral-600">Найдено: {totalFiltered}. Итоги по всей выборке. Сумма и долг исключают отменённые заказы; оплаты включают фактические поступления.</p>
+        {Number(summary?.cancelled_paid_amount) > 0 ? <p className="text-sm text-warning">По отменённым заказам получено {formatMoney(summary!.cancelled_paid_amount)}. Проверьте возвраты в карточках заказов.</p> : null}
         {actionError ? <div className="rounded-md border border-error/35 bg-error/10 px-3 py-2 text-sm text-error">{actionError}</div> : null}
 
         <div className="overflow-visible rounded-lg border border-neutral-200 bg-neutral-0">
@@ -1096,7 +1087,7 @@ export function OrdersScreen(): JSX.Element {
                 {pagedRows.map((row) => {
                   const assignees = row.assigned_employee_ids ?? [];
                   const assigneeLabel = assignees.length
-                    ? assignees.map((employeeId) => employeesById.get(employeeId) ?? employeeId).join(", ")
+                    ? assignees.map((employeeId) => employeesById.get(employeeId) ?? "Сотрудник").join(", ")
                     : t("work_orders.unassigned");
 
                   return (
@@ -1108,16 +1099,16 @@ export function OrdersScreen(): JSX.Element {
                       <div className="min-w-0">
                         <p className="truncate text-xs font-semibold uppercase tracking-wide text-neutral-500">{t("work_orders.number", { number: row.order_number })}</p>
                         <p className="truncate font-semibold text-primary">{row.description}</p>
-                        <p className="mt-0.5 truncate text-xs text-neutral-500">{t("work_orders.created")}: {formatDate(row.created_at)} · {formatDateTime(row.updated_at)}</p>
+                        <p className="mt-0.5 truncate text-xs text-neutral-500">{t("work_orders.created")}: {formatDate(row.created_at)}<br />Обновлён: {formatDateTime(row.updated_at)}</p>
                       </div>
 
                       <div className="min-w-0">
                         <p className="truncate font-medium text-neutral-900">{row.client_name?.trim() || t("work_orders.client_fallback")}</p>
-                        <p className="truncate text-xs text-neutral-600">{row.vehicle_make_model?.trim() || t("work_orders.vehicle_not_linked")}</p>
+                        <p className="truncate text-xs text-neutral-600">{[row.vehicle_plate_number, row.vehicle_make_model].filter(Boolean).join(" · ") || t("work_orders.vehicle_not_linked")}</p>
                       </div>
 
                       <div className="min-w-0">
-                        <Badge tone={STATUS_BADGE_TONE[row.status]}>{t(`dashboard.status.${row.status}`)}</Badge>
+                        <Badge className="whitespace-nowrap" tone={STATUS_BADGE_TONE[row.status]}>{row.status.startsWith("completed") ? "Готов к выдаче" : t(`dashboard.status.${row.status}`)}</Badge>
                       </div>
 
                       <div className="min-w-0">
@@ -1135,7 +1126,7 @@ export function OrdersScreen(): JSX.Element {
                       </div>
 
                       <div className="flex items-center justify-end gap-1" onClick={(event) => event.stopPropagation()}>
-                        <Button size="sm" variant="secondary" onClick={() => router.push(ROUTES.workOrderDetail(row.id) as Route)}>{t("common.open")}</Button>
+                        <Button size="sm" variant="secondary" onClick={() => setPreview(row)}>Обзор</Button>
                         <Button size="sm" variant="ghost" onClick={() => router.push(ROUTES.workOrderDetail(row.id) as Route)} title={t("work_orders.action.record_payment")}>
                           <CreditCard className="h-4 w-4" />
                         </Button>
@@ -1157,7 +1148,7 @@ export function OrdersScreen(): JSX.Element {
                 {pagedRows.map((row) => {
                   const assignees = row.assigned_employee_ids ?? [];
                   const assigneeLabel = assignees.length
-                    ? assignees.map((employeeId) => employeesById.get(employeeId) ?? employeeId).join(", ")
+                    ? assignees.map((employeeId) => employeesById.get(employeeId) ?? "Сотрудник").join(", ")
                     : t("work_orders.unassigned");
 
                   return (
@@ -1182,7 +1173,7 @@ export function OrdersScreen(): JSX.Element {
                         </div>
 
                         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                          <Badge tone={STATUS_BADGE_TONE[row.status]}>{t(`dashboard.status.${row.status}`)}</Badge>
+                          <Badge className="whitespace-nowrap" tone={STATUS_BADGE_TONE[row.status]}>{row.status.startsWith("completed") ? "Готов к выдаче" : t(`dashboard.status.${row.status}`)}</Badge>
                           <Badge tone={paymentTone(row.payment_state)}>{paymentStateLabel(row.payment_state, t)}</Badge>
                           <span className="text-[11px] text-neutral-500">{formatDateTime(row.updated_at)}</span>
                         </div>
@@ -1191,7 +1182,7 @@ export function OrdersScreen(): JSX.Element {
                           <p className="truncate">
                             <span className="font-medium text-neutral-800">{row.client_name?.trim() || t("work_orders.client_fallback")}</span>
                             <span className="mx-1 text-neutral-400">•</span>
-                            <span>{row.vehicle_make_model?.trim() || t("work_orders.vehicle_not_linked")}</span>
+                            <span>{[row.vehicle_plate_number, row.vehicle_make_model].filter(Boolean).join(" · ") || t("work_orders.vehicle_not_linked")}</span>
                           </p>
                           <p className="truncate">{t("work_orders.assignee")}: {assigneeLabel}</p>
                           <p className="truncate">
@@ -1236,6 +1227,9 @@ export function OrdersScreen(): JSX.Element {
         </div>
       </div>
 
+      <Modal open={Boolean(preview)} onOpenChange={open => { if (!open) setPreview(null); }} title={preview ? `Заказ №${preview.order_number}` : "Заказ"}>
+        {preview ? <div className="space-y-3 text-sm"><p className="font-semibold">{preview.description}</p><p>{preview.client_name} · {preview.vehicle_plate_number} · {preview.vehicle_make_model}</p><p>{t(`dashboard.status.${preview.status}`)} · {paymentStateLabel(preview.payment_state, t)}</p><p>Сумма: {formatMoney(preview.total_amount)} · Остаток: {formatMoney(preview.remaining_amount)}</p><p>Создан: {formatDateTime(preview.created_at)}<br />Обновлён: {formatDateTime(preview.updated_at)}</p><Button onClick={() => router.push(ROUTES.workOrderDetail(preview.id) as Route)}>Открыть карточку</Button></div> : null}
+      </Modal>
       <Modal
         open={isMobileFiltersOpen}
         onOpenChange={setIsMobileFiltersOpen}

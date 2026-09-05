@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
@@ -204,6 +205,11 @@ async def list_work_orders(
     query: str | None = Query(default=None, alias="q"),
     status_scope: str = Query(default="all", max_length=32),
     assignee_scope: str = Query(default="all", max_length=64),
+    payment_scope: Literal["all", "unpaid", "partial", "paid", "outstanding"] = Query(default="all"),
+    date_from: datetime | None = Query(default=None),
+    date_to: datetime | None = Query(default=None),
+    sort: Literal["updated_desc", "created_desc", "amount_desc", "amount_asc", "status"] = Query(default="updated_desc"),
+    overdue: bool = Query(default=False),
     limit: int = Query(default=20, ge=1, le=MAX_LIMIT),
     offset: int = Query(default=0, ge=0),
     service: WorkOrderService = Depends(get_work_order_service),
@@ -215,8 +221,11 @@ async def list_work_orders(
         status_scope=status_scope,
         assignee_scope=assignee_scope,
         limit=limit,
-        offset=offset,
+        offset=offset, payment_scope=payment_scope, date_from=date_from, date_to=date_to, sort=sort, overdue=overdue,
     )
+    summary = await service.get_registry_totals(q=query.strip()[:100] if query else None,
+        status_scope=status_scope, assignee_scope=assignee_scope, payment_scope=payment_scope,
+        date_from=date_from, date_to=date_to, overdue=overdue)
     financials_map = await service.get_financials_map(work_order_ids=[item.id for item in items])
     assignee_ids_map = await service.get_assignee_ids_map(work_order_ids=[item.id for item in items])
     client_map, vehicle_map = await _build_order_party_maps(
@@ -247,6 +256,7 @@ async def list_work_orders(
             )
             for item in items
         ],
+        summary=summary,
         total=total,
         limit=limit,
         offset=offset,

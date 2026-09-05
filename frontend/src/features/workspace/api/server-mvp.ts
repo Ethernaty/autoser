@@ -1,3 +1,4 @@
+import type { WorkOrderListParams, WorkOrderListResponse } from "@/features/workspace/types/mvp-types";
 import "server-only";
 
 import { backendRequest } from "@/shared/api/backend-client";
@@ -418,14 +419,8 @@ export async function patchEmployeeStatus(
 
 export async function listWorkOrders(
   context: WorkspaceContext,
-  params: {
-    q?: string;
-    status_scope?: DashboardStatusScope;
-    assignee_scope?: DashboardAssigneeScope;
-    limit?: number;
-    offset?: number;
-  }
-): Promise<PagedResponse<WorkOrderRecord>> {
+  params: WorkOrderListParams
+): Promise<WorkOrderListResponse> {
   const query = new URLSearchParams();
   if (params.q) {
     query.set("q", params.q);
@@ -435,7 +430,11 @@ export async function listWorkOrders(
   query.set("limit", String(sanitizePositiveInt(params.limit, 20, 1, 200)));
   query.set("offset", String(sanitizePositiveInt(params.offset, 0, 0, 100000)));
 
-  const payload = await backendRequest<PagedResponse<WorkOrderRecord>>(`/work-orders/?${query.toString()}`, {
+  for (const key of ["payment_scope", "date_from", "date_to", "sort"] as const) {
+    if (params[key]) query.set(key, params[key]!);
+  }
+  if (params.overdue) query.set("overdue", "true");
+  const payload = await backendRequest<WorkOrderListResponse>(`/work-orders/?${query.toString()}`, {
     method: "GET",
     headers: authHeader(context)
   });

@@ -175,7 +175,20 @@ class WorkOrderResponse(IntakeDetails):
     updated_at: datetime
 
 
+class WorkOrderRegistrySummary(BaseModel):
+    count: int
+    new_count: int
+    in_progress_count: int
+    completed_count: int
+    unpaid_count: int
+    order_amount: Decimal
+    paid_amount: Decimal
+    outstanding_amount: Decimal
+    cancelled_paid_amount: Decimal
+
+
 class WorkOrderListResponse(BaseModel):
+    summary: WorkOrderRegistrySummary | None = None
     items: list[WorkOrderResponse]
     total: int
     limit: int

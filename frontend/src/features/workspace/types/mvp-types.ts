@@ -423,3 +423,14 @@ export type SupportTicketCreatePayload = {
   category: SupportTicketCategory;
   message: string;
 };
+
+export type WorkOrderRegistrySummary = {
+  count: number; new_count: number; in_progress_count: number; completed_count: number; unpaid_count: number;
+  order_amount: string; paid_amount: string; outstanding_amount: string; cancelled_paid_amount: string;
+};
+export type WorkOrderListParams = {
+  q?: string; limit?: number; offset?: number; status_scope?: DashboardStatusScope;
+  assignee_scope?: DashboardAssigneeScope; payment_scope?: string; date_from?: string; date_to?: string;
+  sort?: string; overdue?: boolean;
+};
+export type WorkOrderListResponse = PagedResponse<WorkOrderRecord> & { summary?: WorkOrderRegistrySummary };

@@ -25,6 +25,7 @@ from app.repositories.audit_log_repository import AuditLogRepository
 from app.repositories.client_repository import ClientRepository
 from app.repositories.order_line_repository import OrderLineRepository
 from app.repositories.order_repository import OrderRepository
+from app.repositories.work_order_registry import WorkOrderRegistry
 from app.repositories.payment_repository import PaymentRepository
 from app.repositories.vehicle_repository import VehicleRepository
 from app.services.audit_decorator import audit
@@ -101,33 +102,21 @@ class WorkOrderService(BaseService):
         return await self.execute_read(read_op)
 
     async def list_work_orders(
-        self,
-        *,
-        q: str | None,
-        status_scope: str = "all",
-        assignee_scope: str = "all",
-        limit: int,
-        offset: int,
+        self, *, q: str | None, status_scope: str = "all", assignee_scope: str = "all",
+        limit: int, offset: int, payment_scope: str = "all", date_from: datetime | None = None,
+        date_to: datetime | None = None, sort: str = "updated_desc", overdue: bool = False,
     ) -> tuple[list[Order], int]:
         self._validate_pagination(limit=limit, offset=offset)
-        normalized_query = guard_against_sqli(q.strip())[:100] if q else None
+        filters = dict(q=q.strip()[:100] if q else None, status_scope=status_scope, assignee_scope=assignee_scope,
+                       payment_scope=payment_scope, date_from=date_from, date_to=date_to, overdue=overdue)
+        def read_op(db: Session):
+            repo = WorkOrderRegistry(db=db, tenant_id=self.tenant_id)
+            return repo.page(limit=limit, offset=offset, sort=sort, **filters), repo.totals(**filters)["count"]
+        return await self.execute_read(read_op)
 
-        def read_op(db: Session) -> tuple[list[Order], int]:
-            repo = OrderRepository(db=db, tenant_id=self.tenant_id)
-            if normalized_query:
-                items = repo.search(
-                    query=normalized_query,
-                    limit=limit,
-                    offset=offset,
-                    status_scope=status_scope,
-                    assignee_scope=assignee_scope,
-                )
-                total = repo.count(query=normalized_query, status_scope=status_scope, assignee_scope=assignee_scope)
-            else:
-                items = repo.paginate(limit=limit, offset=offset, status_scope=status_scope, assignee_scope=assignee_scope)
-                total = repo.count(query=None, status_scope=status_scope, assignee_scope=assignee_scope)
-            return items, total
-
+    async def get_registry_totals(self, **filters) -> dict[str, Any]:
+        def read_op(db: Session):
+            return WorkOrderRegistry(db=db, tenant_id=self.tenant_id).totals(**filters)
         return await self.execute_read(read_op)
 
     @audit(action="create", entity="work_order")

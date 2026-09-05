@@ -1,3 +1,4 @@
+import type { WorkOrderListParams, WorkOrderListResponse } from "@/features/workspace/types/mvp-types";
 import { apiClient } from "@/shared/api/client";
 import type {
   ClientCreatePayload,
@@ -265,22 +266,8 @@ export async function setEmployeeStatus(employeeId: string, isActive: boolean): 
   return response.data;
 }
 
-export async function fetchWorkOrders(params: {
-  q?: string;
-  limit?: number;
-  offset?: number;
-  status_scope?: DashboardStatusScope;
-  assignee_scope?: DashboardAssigneeScope;
-}): Promise<PagedResponse<WorkOrderRecord>> {
-  const response = await apiClient.get<PagedResponse<WorkOrderRecord>>("/api/workspace/work-orders", {
-    params: {
-      q: params.q ?? "",
-      status_scope: params.status_scope ?? "all",
-      assignee_scope: params.assignee_scope ?? "all",
-      limit: params.limit ?? 20,
-      offset: params.offset ?? 0
-    }
-  });
+export async function fetchWorkOrders(params: WorkOrderListParams): Promise<WorkOrderListResponse> {
+  const response = await apiClient.get<WorkOrderListResponse>("/api/workspace/work-orders", { params });
   return response.data;
 }
 
