@@ -6,7 +6,7 @@ import type { Route } from "next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ROUTES } from "@/core/config/routes";
-import { formatPhoneInput, normalizePhoneForSubmit } from "@/core/lib/phone";
+import { formatPhoneForDisplay, formatPhoneInput, normalizePhoneForSubmit } from "@/core/lib/phone";
 import { Button, Card, FormActions, FormField, Input, PhoneInput, Textarea } from "@/design-system/primitives";
 import { PageLayout, Section, StateBoundary } from "@/design-system/patterns";
 import {
@@ -85,9 +85,11 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
               title={clientQuery.data.name}
               description={`${t("work_orders.created")} ${new Date(clientQuery.data.created_at).toLocaleString()}`}
               actions={
-                <Link href={ROUTES.clients}>
-                  <Button variant="secondary">{t("clients.back")}</Button>
-                </Link>
+                <div className="flex flex-wrap gap-2">
+                  <Link href={`${ROUTES.workOrderNew}?client_id=${clientId}` as Route}><Button>{t("work_orders.new")}</Button></Link>
+                  <Link href={`${ROUTES.vehicles}?create=1&client_id=${clientId}` as Route}><Button variant="secondary">{t("vehicles.add")}</Button></Link>
+                  <Link href={ROUTES.clients}><Button variant="secondary">{t("clients.back")}</Button></Link>
+                </div>
               }
             >
               <div className="grid grid-cols-1 gap-2 lg:grid-cols-[320px_1fr]">
@@ -95,7 +97,8 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
                   <h3 className="text-sm font-semibold text-neutral-900">{t("client_detail.contact_profile")}</h3>
                   <div className="space-y-1 text-sm text-neutral-700">
                     <p>
-                      <span className="text-neutral-500">{t("common.phone")}:</span> {clientQuery.data.phone}
+                      <span className="text-neutral-500">{t("common.phone")}:</span>{" "}
+                      <a className="text-primary hover:underline" href={`tel:${clientQuery.data.phone}`}>{formatPhoneForDisplay(clientQuery.data.phone)}</a>
                     </p>
                     <p>
                       <span className="text-neutral-500">{t("common.email")}:</span> {clientQuery.data.email ?? t("common.not_provided")}
@@ -215,13 +218,9 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
                           <p className="text-xs text-neutral-600">
                             {t("work_orders.kpi.paid")}: {formatMoney(visit.paid_amount)} | {t("work_orders.kpi.remaining")}: {formatMoney(visit.remaining_amount)}
                           </p>
-                          {visit.vehicle_id ? (
-                            <Link href={ROUTES.vehicleDetail(visit.vehicle_id) as Route}>
-                              <Button variant="secondary" size="sm" className="mt-1">
-                                {t("common.open")}
-                              </Button>
-                            </Link>
-                          ) : null}
+                          <Link href={ROUTES.workOrderDetail(visit.id) as Route}>
+                            <Button variant="secondary" size="sm" className="mt-1">{t("common.open")}</Button>
+                          </Link>
                         </div>
                       </div>
                     </Card>
