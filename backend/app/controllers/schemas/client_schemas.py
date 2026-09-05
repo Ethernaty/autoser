@@ -47,6 +47,12 @@ class ClientListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+    summary: dict[str, int] = Field(default_factory=dict)
+
+
+class ClientImportRequest(BaseModel):
+    csv_text: str = Field(min_length=1, max_length=1048576)
+    commit: bool = False
 
 
 class ClientBatchRequest(BaseModel):

@@ -12,6 +12,8 @@ import { PageLayout } from "@/design-system/patterns";
 import { createClient, fetchClients, mvpQueryKeys, updateClient } from "@/features/workspace/api/mvp-api";
 import type { ClientRecord } from "@/features/workspace/types/mvp-types";
 import { useI18n } from "@/shared/i18n";
+import { CLIENT_SOURCES, fetchClientDirectory } from "@/features/workspace/api/directory-api";
+import { ClientImport } from "@/features/workspace/ui/client-import";
 
 const PAGE_SIZE = 20;
 
@@ -89,6 +91,12 @@ export function ClientsScreen(): JSX.Element {
     setPage(nextPage);
   }, [searchParams]);
 
+  useEffect(() => {
+    if (searchParams.get("create") === "1") onOpenCreate();
+    // Opening from a dashboard action is intentionally tied to the URL.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   const offset = (page - 1) * PAGE_SIZE;
 
   const updateUrlState = useCallback(
@@ -128,8 +136,8 @@ export function ClientsScreen(): JSX.Element {
   }, [q, search, updateUrlState]);
 
   const clientsQuery = useQuery({
-    queryKey: mvpQueryKeys.clients(q, PAGE_SIZE, offset),
-    queryFn: () => fetchClients({ q, limit: PAGE_SIZE, offset }),
+    queryKey: ["clients", "directory", q, sortMode, PAGE_SIZE, offset],
+    queryFn: () => fetchClientDirectory({ q, sort: sortMode, activity: "all", source: "", limit: PAGE_SIZE, offset }),
     placeholderData: keepPreviousData
   });
   const createMutation = useMutation({
@@ -242,29 +250,6 @@ export function ClientsScreen(): JSX.Element {
     return nextRows;
   }, [clientsQuery.data?.items, sortMode]);
 
-  const summary = useMemo(() => {
-    let activeClients = 0;
-    let withVehicles = 0;
-    let withoutOrders = 0;
-
-    for (const client of visibleRows) {
-      if ((client.work_order_count ?? 0) > 0) {
-        activeClients += 1;
-      } else {
-        withoutOrders += 1;
-      }
-      if ((client.vehicle_count ?? 0) > 0) {
-        withVehicles += 1;
-      }
-    }
-
-    return {
-      activeClients,
-      withVehicles,
-      withoutOrders
-    };
-  }, [visibleRows]);
-
   const hasAnyFilterActive = Boolean(search.trim()) || sortMode !== "recent";
 
   const clearFilters = (): void => {
@@ -280,11 +265,7 @@ export function ClientsScreen(): JSX.Element {
       title={t("clients.title")}
       subtitle={t("clients.subtitle")}
       className="space-y-2"
-      actions={
-        <Button onClick={onOpenCreate} variant="primary">
-          {t("clients.add")}
-        </Button>
-      }
+      actions={<div className="flex gap-2"><ClientImport /><Button onClick={onOpenCreate} variant="primary">{t("clients.add")}</Button></div>}
     >
       <div className="space-y-2">
         <div className="flex flex-col gap-2 rounded-md border border-neutral-200 bg-neutral-0 p-2 md:flex-row md:items-center">
@@ -317,9 +298,9 @@ export function ClientsScreen(): JSX.Element {
 
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           <RegistryStat label={t("clients.kpi.total")} value={totalClients} />
-          <RegistryStat label={t("clients.kpi.active")} value={summary.activeClients} />
-          <RegistryStat label={t("clients.kpi.with_vehicles")} value={summary.withVehicles} />
-          <RegistryStat label={t("clients.kpi.without_orders")} value={summary.withoutOrders} />
+          <RegistryStat label={t("clients.kpi.active")} value={clientsQuery.data?.summary.active_clients ?? 0} />
+          <RegistryStat label={t("clients.kpi.with_vehicles")} value={clientsQuery.data?.summary.with_vehicles ?? 0} />
+          <RegistryStat label={t("clients.kpi.without_orders")} value={clientsQuery.data?.summary.without_orders ?? 0} />
         </div>
 
         <div className="space-y-1.5 md:hidden">
@@ -546,12 +527,14 @@ export function ClientsScreen(): JSX.Element {
             <Input id="client-email" value={form.email} onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))} />
           </FormField>
           <FormField id="client-source" label={t("clients.form.source")}>
-            <Input
+            <Select
               id="client-source"
               value={form.source}
               onChange={(event) => setForm((prev) => ({ ...prev, source: event.target.value }))}
-              placeholder={t("clients.form.source_placeholder")}
-            />
+            >
+              <option value="">{t("common.not_set")}</option>
+              {CLIENT_SOURCES.map((source) => <option key={source} value={source}>{source}</option>)}
+            </Select>
           </FormField>
           <FormField id="client-comment" label={t("common.comment")}>
             <Textarea

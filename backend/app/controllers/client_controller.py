@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from uuid import UUID
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, Query, Response, status
 
@@ -11,6 +12,7 @@ from app.controllers.schemas.client_schemas import (
     ClientListResponse,
     ClientResponse,
     ClientUpdate,
+    ClientImportRequest,
 )
 from app.controllers.schemas.work_order_schemas import WorkOrderHistoryItemResponse
 from app.core.config import get_settings
@@ -106,18 +108,17 @@ async def create_client(
 )
 async def list_clients(
     query: str | None = Query(default=None, alias="q"),
+    sort: Literal["recent", "name", "activity"] = "recent",
+    activity: Literal["all", "active", "never", "recent", "inactive"] = "all",
+    source: str | None = Query(default=None, max_length=120),
     limit: int = Query(default=20, ge=1, le=MAX_LIMIT),
     offset: int = Query(default=0, ge=0),
     service: ClientService = Depends(get_client_service),
     vehicle_service: VehicleService = Depends(get_vehicle_service),
     work_order_service: WorkOrderService = Depends(get_work_order_service),
 ) -> ClientListResponse:
-    if query:
-        items = await service.search_clients(query=query, limit=limit, offset=offset)
-        total = await service.count_clients(query=query)
-    else:
-        items = await service.list_clients_paginated(limit=limit, offset=offset)
-        total = await service.count_clients()
+    items, summary = await service.directory(query=query, sort=sort, activity=activity, source=source, limit=limit, offset=offset)
+    total = summary["total"]
 
     client_ids = [item.id for item in items]
     vehicle_counts = await vehicle_service.count_by_client_ids(client_ids=client_ids)
@@ -141,7 +142,13 @@ async def list_clients(
         total=total,
         limit=limit,
         offset=offset,
+        summary=summary,
     )
+
+
+@router.post("/import", dependencies=[Depends(RequirePermission("clients", "create"))])
+async def import_clients(payload: ClientImportRequest, service: ClientService = Depends(get_client_service)):
+    return await service.import_clients(csv_text=payload.csv_text, commit=payload.commit)
 
 
 @router.post(

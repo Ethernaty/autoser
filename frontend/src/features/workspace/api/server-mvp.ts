@@ -171,9 +171,10 @@ export async function getDashboardAnalytics(
 
 export async function listClients(
   context: WorkspaceContext,
-  params: { q?: string; limit?: number; offset?: number }
+  params: { q?: string; limit?: number; offset?: number; sort?: string; activity?: string; source?: string }
 ): Promise<PagedResponse<ClientRecord>> {
   const query = new URLSearchParams();
+  for (const key of ["sort", "activity", "source"] as const) if (params[key]) query.set(key, params[key]!);
   if (params.q) {
     query.set("q", params.q);
   }
