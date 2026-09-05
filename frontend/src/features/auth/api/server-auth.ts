@@ -70,6 +70,19 @@ export async function logoutWithBackend(refreshToken: string, forwardedFor?: str
   });
 }
 
+export async function changePasswordWithBackend(
+  accessToken: string,
+  currentPassword: string,
+  newPassword: string,
+  forwardedFor?: string
+): Promise<void> {
+  await backendRequest<void>("/auth/change-password", {
+    method: "POST",
+    headers: authHeader(accessToken, forwardedFor),
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+  });
+}
+
 export async function refreshWithBackend(
   refreshToken: string,
   forwardedFor?: string

@@ -13,6 +13,7 @@ from app.models.user import User
 from app.repositories.auth_repository import AuthRepository
 from app.services.jwt_service import JWTService, TokenPair, TokenType, get_jwt_service
 from app.services.password_hasher import PasswordHasher
+from app.core.membership_cache import invalidate_membership_cache_sync
 
 
 @dataclass
@@ -206,6 +207,8 @@ class AuthService:
                 raise AuthError(code="membership_not_found", message="Membership not found")
             if not membership.is_active:
                 raise AppError(status_code=403, code="membership_inactive", message="Workspace access is disabled")
+            if membership.version != payload.membership_version:
+                raise AuthError(code="token_revoked", message="Session has been revoked")
 
             tenant = auth_repo.get_tenant_by_id(membership.tenant_id)
             if not tenant:
@@ -267,6 +270,27 @@ class AuthService:
 
     def revoke_refresh_token(self, *, refresh_token: str) -> None:
         self.jwt_service.revoke_token(refresh_token, expected_type=TokenType.REFRESH)
+
+    def change_password(self, *, user_id: UUID, current_password: str, new_password: str) -> None:
+        if len(new_password.strip()) < 8 or len(new_password.strip()) > 128:
+            raise AppError(status_code=400, code="invalid_password", message="Password must be 8-128 characters")
+        if current_password == new_password:
+            raise AppError(status_code=400, code="password_unchanged", message="New password must be different")
+        affected_tenants: list[UUID] = []
+        with SqlAlchemyUnitOfWork(session_factory=SessionLocal) as uow:
+            if uow.session is None:
+                raise RuntimeError("uow_session_missing")
+            auth_repo = AuthRepository(uow.session)
+            user = auth_repo.get_user_by_id(user_id)
+            if user is None or not self.password_hasher.verify(current_password, user.password_hash):
+                raise AppError(status_code=400, code="invalid_current_password", message="Current password is incorrect")
+            user.password_hash = self.password_hasher.hash(new_password.strip())
+            memberships = auth_repo.list_memberships_for_user(user_id)
+            for membership in memberships:
+                membership.version += 1
+                affected_tenants.append(membership.tenant_id)
+        for tenant_id in affected_tenants:
+            invalidate_membership_cache_sync(tenant_id=tenant_id, user_id=user_id)
 
     def _resolve_membership_for_login(
         self,
