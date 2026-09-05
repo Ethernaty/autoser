@@ -43,7 +43,7 @@ export function VehicleDetailScreen({ vehicleId }: { vehicleId: string }): JSX.E
 
   const historyQuery = useQuery({
     queryKey: mvpQueryKeys.vehicleHistory(vehicleId, 100, 0),
-    queryFn: () => fetchVehicleHistory(vehicleId, { limit: 50, offset: 0 })
+    queryFn: () => fetchVehicleHistory(vehicleId, { limit: 100, offset: 0 })
   });
 
   const updateMutation = useMutation({
@@ -78,6 +78,9 @@ export function VehicleDetailScreen({ vehicleId }: { vehicleId: string }): JSX.E
               description={`${t("work_orders.created")} ${new Date(vehicleQuery.data.created_at).toLocaleString()}`}
               actions={
                 <div className="flex items-center gap-1">
+                  <Link href={`${ROUTES.workOrderNew}?client_id=${vehicleQuery.data.client_id}&vehicle_id=${vehicleId}` as Route}>
+                    <Button>{t("work_orders.new")}</Button>
+                  </Link>
                   {currentOwnerQuery.data ? (
                     <Link href={ROUTES.clientDetail(currentOwnerQuery.data.id) as Route}>
                       <Button variant="secondary">{t("vehicle_detail.current_owner")}</Button>

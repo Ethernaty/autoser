@@ -98,6 +98,23 @@ export function VehiclesScreen(): JSX.Element {
     setPage(nextPage);
   }, [searchParams]);
 
+  useEffect(() => {
+    if (searchParams.get("create") !== "1") {
+      return;
+    }
+    const presetClientId = searchParams.get("client_id") ?? "";
+    setEditingVehicle(null);
+    setForm({ ...defaultVehicleForm(), client_id: presetClientId });
+    setFormError(null);
+    setModalOpen(true);
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("create");
+    params.delete("client_id");
+    const queryString = params.toString();
+    router.replace((queryString ? `${pathname}?${queryString}` : pathname) as Route, { scroll: false });
+  }, [pathname, router, searchParams]);
+
   const offset = (page - 1) * PAGE_SIZE;
   const updateUrlState = useCallback(
     (next: { q: string; page: number }): void => {
