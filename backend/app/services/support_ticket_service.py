@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from uuid import UUID
+from datetime import UTC, datetime
+from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -103,6 +104,34 @@ class SupportTicketService(BaseService):
             if ticket is None:
                 raise AppError(status_code=404, code="support_ticket_not_found", message="Support ticket not found")
             ticket.status = normalized_status
+            db.flush()
+            db.refresh(ticket)
+            return ticket
+
+        return await self.execute_write(write_op, idempotent=False)
+
+    async def add_message(self, *, ticket_id: UUID, message: str) -> SupportTicket:
+        if self.actor_user_id is None:
+            raise AppError(status_code=401, code="actor_required", message="Authenticated actor is required")
+        normalized_message = self._normalize_message(message)
+
+        def write_op(db: Session) -> SupportTicket:
+            repo = SupportTicketRepository(db=db, tenant_id=self.tenant_id)
+            ticket = repo.get_by_id(ticket_id)
+            if ticket is None:
+                raise AppError(status_code=404, code="support_ticket_not_found", message="Support ticket not found")
+            ticket.messages = [
+                *(ticket.messages or []),
+                {
+                    "id": str(uuid4()),
+                    "author_user_id": str(self.actor_user_id),
+                    "author_role": self.actor_role or "employee",
+                    "message": normalized_message,
+                    "created_at": datetime.now(UTC).isoformat(),
+                },
+            ]
+            if ticket.status in {SupportTicketStatus.RESOLVED, SupportTicketStatus.CLOSED}:
+                ticket.status = SupportTicketStatus.IN_PROGRESS
             db.flush()
             db.refresh(ticket)
             return ticket

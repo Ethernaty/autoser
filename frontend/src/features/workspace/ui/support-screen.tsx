@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Card, FormField, Input, Select, Textarea } from "@/design-system/primitives";
 import { PageLayout, Section, StateBoundary } from "@/design-system/patterns";
 import { hasPermission } from "@/features/rbac/config/permission-matrix";
-import { createSupportTicket, fetchSupportTickets, mvpQueryKeys, updateSupportTicketStatus } from "@/features/workspace/api/mvp-api";
+import { addSupportTicketMessage, createSupportTicket, fetchSupportTickets, mvpQueryKeys, updateSupportTicketStatus } from "@/features/workspace/api/mvp-api";
 import type { SupportTicketCategory, SupportTicketStatus } from "@/features/workspace/types/mvp-types";
 import { useAuthStore } from "@/features/auth/model/auth-store";
 import { useI18n } from "@/shared/i18n";
@@ -38,6 +38,7 @@ export function SupportScreen(): JSX.Element {
   const [categoryFilter, setCategoryFilter] = useState<SupportTicketCategory | "all">("all");
   const [myOnly, setMyOnly] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
 
   const ticketsQuery = useQuery({
     queryKey: mvpQueryKeys.supportTickets(q, status, categoryFilter, myOnly, 50, 0),
@@ -67,6 +68,14 @@ export function SupportScreen(): JSX.Element {
     mutationFn: ({ ticketId, status }: { ticketId: string; status: SupportTicketStatus }) =>
       updateSupportTicketStatus(ticketId, status),
     onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["support", "tickets"] });
+    }
+  });
+
+  const replyMutation = useMutation({
+    mutationFn: ({ ticketId, message }: { ticketId: string; message: string }) => addSupportTicketMessage(ticketId, message),
+    onSuccess: (_, variables) => {
+      setReplyDrafts((current) => ({ ...current, [variables.ticketId]: "" }));
       void queryClient.invalidateQueries({ queryKey: ["support", "tickets"] });
     }
   });
@@ -198,6 +207,37 @@ export function SupportScreen(): JSX.Element {
                           </Button>
                         ) : null}
                       </div>
+                    </div>
+                    {ticket.messages?.length ? (
+                      <div className="mt-3 space-y-2 border-t border-neutral-200 pt-3">
+                        {ticket.messages.map((item) => (
+                          <div key={item.id} className="rounded-md bg-neutral-50 px-3 py-2">
+                            <div className="flex items-center justify-between gap-2 text-[11px] text-neutral-500">
+                              <span>{item.author_role}</span>
+                              <span>{new Date(item.created_at).toLocaleString()}</span>
+                            </div>
+                            <p className="mt-1 whitespace-pre-wrap text-sm text-neutral-700">{item.message}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="mt-3 flex items-end gap-2 border-t border-neutral-200 pt-3">
+                      <FormField id={`support-reply-${ticket.id}`} label={t("support.reply")} className="flex-1">
+                        <Textarea
+                          id={`support-reply-${ticket.id}`}
+                          rows={2}
+                          value={replyDrafts[ticket.id] ?? ""}
+                          onChange={(event) => setReplyDrafts((current) => ({ ...current, [ticket.id]: event.target.value }))}
+                        />
+                      </FormField>
+                      <Button
+                        size="sm"
+                        loading={replyMutation.isPending && replyMutation.variables?.ticketId === ticket.id}
+                        disabled={!replyDrafts[ticket.id]?.trim()}
+                        onClick={() => replyMutation.mutate({ ticketId: ticket.id, message: replyDrafts[ticket.id].trim() })}
+                      >
+                        {t("support.reply_send")}
+                      </Button>
                     </div>
                   </Card>
                 );

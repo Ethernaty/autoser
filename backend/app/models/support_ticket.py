@@ -4,8 +4,9 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
-from sqlalchemy import DateTime, Enum as SQLEnum, ForeignKey, Index, String, Text, func
+from sqlalchemy import DateTime, Enum as SQLEnum, ForeignKey, Index, String, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import BaseModel, TenantScopedMixin
@@ -52,6 +53,7 @@ class SupportTicket(BaseModel, TenantScopedMixin):
         default=SupportTicketCategory.GENERAL,
     )
     message: Mapped[str] = mapped_column(Text, nullable=False)
+    messages: Mapped[list[dict[str, str]]] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
     status: Mapped[SupportTicketStatus] = mapped_column(
         SQLEnum(
             SupportTicketStatus,

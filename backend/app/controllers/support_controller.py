@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from app.controllers.schemas.support_schemas import (
     SupportTicketCreateRequest,
     SupportTicketListResponse,
+    SupportTicketMessageCreateRequest,
     SupportTicketResponse,
     SupportTicketUpdateStatusRequest,
 )
@@ -82,4 +83,18 @@ async def update_support_ticket_status(
     service: SupportTicketService = Depends(get_support_ticket_service),
 ) -> SupportTicketResponse:
     ticket = await service.update_status(ticket_id=ticket_id, status=payload.status)
+    return SupportTicketResponse.model_validate(ticket)
+
+
+@router.post(
+    "/{ticket_id}/messages",
+    response_model=SupportTicketResponse,
+    dependencies=[Depends(RequirePermission("support", "create"))],
+)
+async def add_support_ticket_message(
+    ticket_id: UUID,
+    payload: SupportTicketMessageCreateRequest,
+    service: SupportTicketService = Depends(get_support_ticket_service),
+) -> SupportTicketResponse:
+    ticket = await service.add_message(ticket_id=ticket_id, message=payload.message)
     return SupportTicketResponse.model_validate(ticket)

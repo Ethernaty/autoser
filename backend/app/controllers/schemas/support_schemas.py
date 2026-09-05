@@ -18,6 +18,18 @@ class SupportTicketUpdateStatusRequest(BaseModel):
     status: SupportTicketStatus
 
 
+class SupportTicketMessageCreateRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=6000)
+
+
+class SupportTicketMessageResponse(BaseModel):
+    id: UUID
+    author_user_id: UUID
+    author_role: str
+    message: str
+    created_at: datetime
+
+
 class SupportTicketResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -27,6 +39,7 @@ class SupportTicketResponse(BaseModel):
     subject: str
     category: SupportTicketCategory
     message: str
+    messages: list[SupportTicketMessageResponse] = Field(default_factory=list)
     status: SupportTicketStatus
     created_at: datetime
     updated_at: datetime
