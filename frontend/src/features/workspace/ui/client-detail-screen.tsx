@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -49,16 +49,20 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
   });
 
   const historyQuery = useQuery({
-    queryKey: mvpQueryKeys.clientWorkOrders(clientId, 50, 0),
-    queryFn: () => fetchClientWorkOrders(clientId, { limit: 50, offset: 0 })
+    queryKey: mvpQueryKeys.clientWorkOrders(clientId, 100, 0),
+    queryFn: () => fetchClientWorkOrders(clientId, { limit: 100, offset: 0 })
   });
+  const clientFinancials = useMemo(() => (historyQuery.data ?? []).reduce(
+    (totals, item) => ({ paid: totals.paid + Number(item.paid_amount || 0), debt: totals.debt + Number(item.remaining_amount || 0) }),
+    { paid: 0, debt: 0 }
+  ), [historyQuery.data]);
 
   const updateMutation = useMutation({
     mutationFn: (payload: Parameters<typeof updateClient>[1]) => updateClient(clientId, payload),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.client(clientId) });
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.vehiclesByClient(clientId) });
-      void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.clientWorkOrders(clientId, 50, 0) });
+      void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.clientWorkOrders(clientId, 100, 0) });
       void queryClient.invalidateQueries({ queryKey: ["clients"] });
     }
   });
@@ -112,6 +116,8 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
                     <p>
                       <span className="text-neutral-500">{t("client_detail.visits")}:</span> {clientQuery.data.work_order_count ?? 0}
                     </p>
+                    <p><span className="text-neutral-500">{t("client_detail.total_paid")}:</span> {formatMoney(String(clientFinancials.paid))}</p>
+                    <p><span className="text-neutral-500">{t("client_detail.total_debt")}:</span> {formatMoney(String(clientFinancials.debt))}</p>
                   </div>
                 </Card>
 
@@ -211,6 +217,7 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
                             </p>
                           ) : null}
                           <p className="text-xs text-neutral-600">{t("client_detail.work_summary")}: {visit.work_summary ?? t("client_detail.no_line_items")}</p>
+                          {visit.mileage != null ? <p className="text-xs text-neutral-600">{t("work_order_intake.mileage")}: {visit.mileage.toLocaleString()}</p> : null}
                         </div>
                         <div className="min-w-[180px] text-right">
                           <OrderStatusBadge status={visit.status} />

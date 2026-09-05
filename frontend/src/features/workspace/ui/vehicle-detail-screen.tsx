@@ -188,6 +188,9 @@ export function VehicleDetailScreen({ vehicleId }: { vehicleId: string }): JSX.E
                           <p className="text-xs text-neutral-600">{t("client_detail.visit_date")}: {new Date(item.visit_at).toLocaleString()}</p>
                           <p className="text-xs text-neutral-600">{t("vehicle_detail.owner_at_visit")}: {item.client_name ?? t("common.unknown")}</p>
                           <p className="text-xs text-neutral-600">{t("client_detail.work_summary")}: {item.work_summary ?? t("client_detail.no_line_items")}</p>
+                          {item.mileage != null ? <p className="text-xs text-neutral-600">{t("work_order_intake.mileage")}: {item.mileage.toLocaleString()}</p> : null}
+                          {item.diagnosis ? <p className="text-xs text-neutral-600">{t("work_order_intake.diagnosis")}: {item.diagnosis}</p> : null}
+                          {item.due_at ? <p className="text-xs font-medium text-warning">{t("work_order_intake.due_at")}: {new Date(item.due_at).toLocaleString()}</p> : null}
                         </div>
                         <div className="min-w-[180px] text-right">
                           <OrderStatusBadge status={item.status} />
