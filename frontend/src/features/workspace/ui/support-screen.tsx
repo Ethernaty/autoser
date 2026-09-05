@@ -38,6 +38,7 @@ export function SupportScreen(): JSX.Element {
   const [categoryFilter, setCategoryFilter] = useState<SupportTicketCategory | "all">("all");
   const [myOnly, setMyOnly] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [createdTicketId, setCreatedTicketId] = useState<string | null>(null);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
 
   const ticketsQuery = useQuery({
@@ -55,11 +56,12 @@ export function SupportScreen(): JSX.Element {
 
   const createTicketMutation = useMutation({
     mutationFn: createSupportTicket,
-    onSuccess: () => {
+    onSuccess: (ticket) => {
       setSubject("");
       setCategory("general");
       setMessage("");
       setFormError(null);
+      setCreatedTicketId(ticket.id);
       void queryClient.invalidateQueries({ queryKey: ["support", "tickets"] });
     }
   });
@@ -115,6 +117,7 @@ export function SupportScreen(): JSX.Element {
           </FormField>
         </div>
         {formError ? <p className="mt-2 text-sm text-error">{formError}</p> : null}
+        {createdTicketId ? <p className="mt-2 rounded-md bg-success/10 px-3 py-2 text-sm text-success">{t("support.created", { id: createdTicketId.slice(0, 8).toUpperCase() })}</p> : null}
         <div className="mt-2">
           <Button
             variant="primary"
@@ -177,6 +180,7 @@ export function SupportScreen(): JSX.Element {
                   <Card key={ticket.id} className="border-neutral-200 p-3">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">#{ticket.id.slice(0, 8).toUpperCase()}</p>
                         <p className="truncate text-sm font-semibold text-neutral-900">{ticket.subject}</p>
                         <p className="mt-1 text-xs text-neutral-600">{ticket.message}</p>
                         <p className="mt-1 text-xs text-neutral-500">

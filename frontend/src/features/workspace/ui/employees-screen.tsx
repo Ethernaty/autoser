@@ -284,7 +284,7 @@ export function EmployeesScreen(): JSX.Element {
     setModalOpen(true);
   };
 
-  const onOpenEdit = (employee: EmployeeRecord): void => {
+  const onOpenEdit = useCallback((employee: EmployeeRecord): void => {
     setEditingEmployee(employee);
     setForm({
       full_name: employee.full_name ?? "",
@@ -299,7 +299,7 @@ export function EmployeesScreen(): JSX.Element {
     setShowPasswordConfirm(false);
     setError(null);
     setModalOpen(true);
-  };
+  }, []);
 
   const rows = employeesQuery.data?.items ?? [];
   const totalEmployees = employeesQuery.data?.total ?? 0;

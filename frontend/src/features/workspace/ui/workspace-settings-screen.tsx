@@ -217,7 +217,7 @@ export function WorkspaceSettingsScreen(): JSX.Element {
     setCurrencyManuallyChanged(false);
     setLogoFile(null);
     setLogoPreviewUrl(settingsQuery.data.logo_data_url);
-  }, [settingsQuery.data]);
+  }, [settingsQuery.data, t]);
 
   useEffect(() => {
     if (!timezonePickerOpen) {
