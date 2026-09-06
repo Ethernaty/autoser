@@ -138,7 +138,7 @@ async def list_vehicles(
     client_service: ClientService = Depends(get_client_service),
     work_order_service: WorkOrderService = Depends(get_work_order_service),
 ) -> VehicleListResponse:
-    items, total = await service.list_vehicles(q=query, client_id=client_id, limit=limit, offset=offset)
+    items, total, summary = await service.list_vehicles(q=query, client_id=client_id, limit=limit, offset=offset)
     vehicle_ids = [item.id for item in items]
     client_ids = list({item.client_id for item in items})
     clients = await client_service.list_clients_by_ids(ids=client_ids)
@@ -165,6 +165,7 @@ async def list_vehicles(
         total=total,
         limit=limit,
         offset=offset,
+        summary=summary,
     )
 
 

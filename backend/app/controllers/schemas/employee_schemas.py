@@ -41,6 +41,8 @@ class EmployeeResponse(BaseModel):
     email: EmailStr
     role: str
     is_active: bool
+    job_title: str | None = None
+    can_accept_payments: bool = False
     version: int
     created_at: datetime
 

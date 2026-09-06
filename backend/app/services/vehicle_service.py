@@ -80,16 +80,17 @@ class VehicleService(BaseService):
         client_id: UUID | None,
         limit: int,
         offset: int,
-    ) -> tuple[list[Vehicle], int]:
+    ) -> tuple[list[Vehicle], int, dict[str, int]]:
         if limit <= 0 or offset < 0 or limit > 100:
             raise AppError(status_code=400, code="invalid_pagination", message="Invalid pagination")
         normalized_query = guard_against_sqli(q.strip())[:100] if q else None
 
-        def read_op(db: Session) -> tuple[list[Vehicle], int]:
+        def read_op(db: Session) -> tuple[list[Vehicle], int, dict[str, int]]:
             repo = VehicleRepository(db=db, tenant_id=self.tenant_id)
             items = repo.paginate(limit=limit, offset=offset, query=normalized_query, client_id=client_id)
             total = repo.count(query=normalized_query, client_id=client_id)
-            return items, total
+            summary = repo.summary(query=normalized_query, client_id=client_id)
+            return items, total, summary
 
         return await self.execute_read(read_op)
 

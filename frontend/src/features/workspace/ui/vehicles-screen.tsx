@@ -205,27 +205,11 @@ export function VehiclesScreen(): JSX.Element {
     return nextRows;
   }, [vehiclesQuery.data?.items, sortMode]);
 
-  const summary = useMemo(() => {
-    let withActiveOrders = 0;
-    let withoutOrders = 0;
-    let recentAdded = 0;
-    const now = Date.now();
-    const recentThreshold = 1000 * 60 * 60 * 24 * 14;
-
-    for (const vehicle of visibleRows) {
-      if ((vehicle.active_work_order_count ?? 0) > 0) {
-        withActiveOrders += 1;
-      }
-      if ((vehicle.work_order_count ?? 0) === 0) {
-        withoutOrders += 1;
-      }
-      if (now - toTimestamp(vehicle.created_at) <= recentThreshold) {
-        recentAdded += 1;
-      }
-    }
-
-    return { withActiveOrders, withoutOrders, recentAdded };
-  }, [visibleRows]);
+  const summary = vehiclesQuery.data?.summary ?? {
+    with_active_orders: 0,
+    without_orders: 0,
+    recent_added: 0
+  };
 
   const hasAnyFilterActive = Boolean(search.trim()) || sortMode !== "recent";
   const clearFilters = (): void => {
@@ -379,9 +363,9 @@ export function VehiclesScreen(): JSX.Element {
 
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           <RegistryStat label={t("vehicles.kpi.total")} value={totalVehicles} />
-          <RegistryStat label={t("vehicles.kpi.active_orders")} value={summary.withActiveOrders} />
-          <RegistryStat label={t("vehicles.kpi.without_orders")} value={summary.withoutOrders} />
-          <RegistryStat label={t("vehicles.kpi.recent_added")} value={summary.recentAdded} />
+          <RegistryStat label={t("vehicles.kpi.active_orders")} value={summary.with_active_orders} />
+          <RegistryStat label={t("vehicles.kpi.without_orders")} value={summary.without_orders} />
+          <RegistryStat label={t("vehicles.kpi.recent_added")} value={summary.recent_added} />
         </div>
 
         <div className="space-y-1.5 md:hidden">

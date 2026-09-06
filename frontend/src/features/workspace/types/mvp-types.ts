@@ -283,6 +283,14 @@ export type IntakeDetails = {
   attachments?: Array<{ id?: string | null; name: string; content_type: "image/png" | "image/jpeg" | "image/webp"; data_url: string; created_at?: string | null }>;
 };
 
+export type VehicleListResponse = PagedResponse<VehicleRecord> & {
+  summary: {
+    with_active_orders: number;
+    without_orders: number;
+    recent_added: number;
+  };
+};
+
 export type WorkOrderRecord = IntakeDetails & {
   id: string;
   order_number: number;

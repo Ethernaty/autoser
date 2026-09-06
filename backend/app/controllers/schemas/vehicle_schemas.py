@@ -45,8 +45,15 @@ class VehicleResponse(BaseModel):
     updated_at: datetime
 
 
+class VehicleListSummary(BaseModel):
+    with_active_orders: int = 0
+    without_orders: int = 0
+    recent_added: int = 0
+
+
 class VehicleListResponse(BaseModel):
     items: list[VehicleResponse]
     total: int
     limit: int
     offset: int
+    summary: VehicleListSummary

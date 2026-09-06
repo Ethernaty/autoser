@@ -19,6 +19,7 @@ import type {
   PaymentCreatePayload,
   PaymentRecord,
   VehicleCreatePayload,
+  VehicleListResponse,
   VehicleRecord,
   WorkOrderHistoryItem,
   SupportTicketCreatePayload,
@@ -170,8 +171,8 @@ export async function fetchVehicles(params: {
   client_id?: string;
   limit?: number;
   offset?: number;
-}): Promise<PagedResponse<VehicleRecord>> {
-  const response = await apiClient.get<PagedResponse<VehicleRecord>>("/api/workspace/vehicles", {
+}): Promise<VehicleListResponse> {
+  const response = await apiClient.get<VehicleListResponse>("/api/workspace/vehicles", {
     params: {
       q: params.q ?? "",
       client_id: params.client_id,

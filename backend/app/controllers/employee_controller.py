@@ -154,7 +154,12 @@ async def set_employee_status(
     payload: EmployeeStatusRequest,
     service: EmployeeService = Depends(get_employee_service),
 ) -> EmployeeResponse:
-    employee = await service.update_employee(user_id=employee_id, is_active=payload.is_active)
+    employee = await service.update_employee(
+        user_id=employee_id,
+        is_active=payload.is_active,
+        job_title=payload.job_title,
+        can_accept_payments=payload.can_accept_payments,
+    )
     return _to_response(employee)
 
 
