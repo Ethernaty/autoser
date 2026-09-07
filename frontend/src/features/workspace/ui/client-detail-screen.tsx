@@ -1,9 +1,9 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ROUTES } from "@/core/config/routes";
 import { formatPhoneForDisplay, formatPhoneInput, normalizePhoneForSubmit } from "@/core/lib/phone";
@@ -48,21 +48,20 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
     queryFn: () => fetchVehiclesByClient(clientId)
   });
 
-  const historyQuery = useQuery({
-    queryKey: mvpQueryKeys.clientWorkOrders(clientId, 100, 0),
-    queryFn: () => fetchClientWorkOrders(clientId, { limit: 100, offset: 0 })
+  const historyQuery = useInfiniteQuery({
+    queryKey: [...mvpQueryKeys.clientWorkOrders(clientId, 50, 0), "pages"],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => fetchClientWorkOrders(clientId, { limit: 50, offset: pageParam }),
+    getNextPageParam: (lastPage, pages) => lastPage.length === 50 ? pages.length * 50 : undefined
   });
-  const clientFinancials = useMemo(() => (historyQuery.data ?? []).reduce(
-    (totals, item) => ({ paid: totals.paid + Number(item.paid_amount || 0), debt: totals.debt + Number(item.remaining_amount || 0) }),
-    { paid: 0, debt: 0 }
-  ), [historyQuery.data]);
+  const history = historyQuery.data?.pages.flat() ?? [];
 
   const updateMutation = useMutation({
     mutationFn: (payload: Parameters<typeof updateClient>[1]) => updateClient(clientId, payload),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.client(clientId) });
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.vehiclesByClient(clientId) });
-      void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.clientWorkOrders(clientId, 100, 0) });
+      void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.clientWorkOrders(clientId, 50, 0) });
       void queryClient.invalidateQueries({ queryKey: ["clients"] });
     }
   });
@@ -116,8 +115,8 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
                     <p>
                       <span className="text-neutral-500">{t("client_detail.visits")}:</span> {clientQuery.data.work_order_count ?? 0}
                     </p>
-                    <p><span className="text-neutral-500">{t("client_detail.total_paid")}:</span> {formatMoney(String(clientFinancials.paid))}</p>
-                    <p><span className="text-neutral-500">{t("client_detail.total_debt")}:</span> {formatMoney(String(clientFinancials.debt))}</p>
+                    <p><span className="text-neutral-500">{t("client_detail.total_paid")}:</span> {clientQuery.data.total_paid == null ? "—" : formatMoney(clientQuery.data.total_paid)}</p>
+                    <p><span className="text-neutral-500">{t("client_detail.total_debt")}:</span> {clientQuery.data.total_debt == null ? "—" : formatMoney(clientQuery.data.total_debt)}</p>
                   </div>
                 </Card>
 
@@ -200,9 +199,9 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
                 <p className="text-sm text-neutral-600">{t("client_detail.loading_history")}</p>
               ) : historyQuery.error ? (
                 <p className="text-sm text-error">{historyQuery.error.message}</p>
-              ) : historyQuery.data?.length ? (
+              ) : history.length ? (
                 <div className="space-y-1">
-                  {historyQuery.data.map((visit) => (
+                  {history.map((visit) => (
                     <Card key={visit.id} className="border-neutral-200 p-2">
                       <div className="flex flex-wrap items-start justify-between gap-1">
                         <div>
@@ -236,6 +235,7 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
               ) : (
                 <p className="text-sm text-neutral-600">{t("client_detail.history.empty")}</p>
               )}
+              {historyQuery.hasNextPage ? <Button variant="secondary" loading={historyQuery.isFetchingNextPage} onClick={() => void historyQuery.fetchNextPage()}>{t("common.load_more")}</Button> : null}
             </Section>
           </>
         ) : null}

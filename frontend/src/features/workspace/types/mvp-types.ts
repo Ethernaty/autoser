@@ -139,6 +139,7 @@ export type DashboardPreferencesUpdatePayload = {
 };
 
 export type WorkspaceContextResponse = {
+  can_accept_payments: boolean;
   workspace_id: string;
   workspace_slug: string;
   workspace_name: string;
@@ -181,6 +182,8 @@ export type ClientRecord = {
   vehicle_count: number;
   work_order_count: number;
   active_work_order_count: number;
+  total_paid?: string | null;
+  total_debt?: string | null;
   last_activity_at: string | null;
   version: number;
   created_at: string;
@@ -452,6 +455,7 @@ export type SupportTicketCreatePayload = {
 };
 
 export type WorkOrderRegistrySummary = {
+  completed_paid_count: number; unassigned_count: number;
   count: number; new_count: number; in_progress_count: number; completed_count: number; unpaid_count: number;
   order_amount: string; paid_amount: string; outstanding_amount: string; cancelled_paid_amount: string;
 };

@@ -7,6 +7,6 @@ type FormActionsProps = PropsWithChildren<{
 }>;
 
 export function FormActions({ className, children }: FormActionsProps): JSX.Element {
-  return <div className={cn("flex items-center justify-end gap-1 border-t border-neutral-200 pt-2", className)}>{children}</div>;
+  return <div className={cn("flex min-w-0 flex-wrap items-center justify-end gap-1 border-t border-neutral-200 pt-2", className)}>{children}</div>;
 }
 

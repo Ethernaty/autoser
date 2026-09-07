@@ -120,7 +120,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }): JSX.Element {
     <>
       <aside
         className={cn(
-          "fixed left-0 top-0 z-30 hidden h-screen overflow-hidden transition-all duration-200 md:block",
+          "fixed left-0 top-0 z-30 hidden h-screen overflow-hidden transition-all duration-200 lg:block",
           collapsed ? "w-sidebar-collapsed" : "w-sidebar"
         )}
       >
@@ -152,7 +152,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }): JSX.Element {
         </div>
       </aside>
 
-      <div className={cn("fixed inset-0 z-[70] md:hidden", mobileSidebarOpen ? "pointer-events-auto" : "pointer-events-none")}>
+      <div className={cn("fixed inset-0 z-[70] lg:hidden", mobileSidebarOpen ? "pointer-events-auto" : "pointer-events-none")}>
         <button
           type="button"
           className={cn("absolute inset-0 bg-neutral-950/40 transition-opacity", mobileSidebarOpen ? "opacity-100" : "opacity-0")}

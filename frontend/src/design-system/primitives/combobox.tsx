@@ -168,7 +168,7 @@ export function Combobox({
   };
 
   return (
-    <div className={cn("relative", className)} ref={rootRef}>
+    <div className={cn("relative min-w-0", className)} ref={rootRef}>
       {name ? <input type="hidden" name={name} value={value} /> : null}
       <button
         ref={triggerRef}
@@ -177,13 +177,13 @@ export function Combobox({
         onClick={() => !disabled && setOpen((current) => !current)}
         disabled={disabled}
         className={cn(
-          "flex w-full items-center justify-between rounded-md border border-neutral-300 bg-neutral-0 px-3 text-left text-sm text-neutral-900",
+          "flex min-w-0 max-w-full w-full items-center justify-between gap-2 rounded-md border border-neutral-300 bg-neutral-0 px-3 text-left text-sm text-neutral-900",
           size === "sm" ? "h-8" : "h-9",
           "transition-colors hover:border-neutral-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35",
           "disabled:pointer-events-none disabled:opacity-50"
         )}
       >
-        <span className={cn("truncate", selected ? "text-neutral-900" : "text-neutral-500")}>{selected?.label ?? placeholder}</span>
+        <span className={cn("min-w-0 truncate", selected ? "text-neutral-900" : "text-neutral-500")}>{selected?.label ?? placeholder}</span>
         <ChevronsUpDown className="h-4 w-4 shrink-0 text-neutral-500" />
       </button>
 

@@ -661,7 +661,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
         {createVehicleMutation.error ? <p className="text-xs text-error">{createVehicleMutation.error.message}</p> : null}
         {createWorkOrderMutation.error ? <p className="text-xs text-error">{createWorkOrderMutation.error.message}</p> : null}
 
-        <div className="sticky bottom-0 z-10 -mx-1 mt-1 bg-gradient-to-t from-neutral-100/95 via-neutral-100/92 to-transparent px-1 pt-3 pb-[max(8px,env(safe-area-inset-bottom))]">
+        <div className="mt-3 pb-[max(8px,env(safe-area-inset-bottom))]">
           <div className="flex flex-wrap items-center justify-end gap-2 border-t border-neutral-200 py-2">
             <Button type="button" size="sm" variant="secondary" onClick={() => router.push(ROUTES.workOrders as Route)}>
               {t("common.cancel")}

@@ -17,13 +17,13 @@ export function AppLayout({ sidebar, topbar, sidebarOffset, mobileNav, modal, ch
   return (
     <div className="min-h-screen overflow-x-clip bg-neutral-50 text-neutral-900" style={layoutStyle}>
       {sidebar}
-      <div className="min-h-screen pl-0 md:pl-[var(--sidebar-offset)]">
+      <div className="min-h-screen min-w-0 pl-0 lg:pl-[var(--sidebar-offset)]">
         {topbar}
         <main
           className={cn(
             "min-h-screen",
             topbar ? "pt-[56px]" : "pt-0",
-            mobileNav ? "pb-[calc(68px+env(safe-area-inset-bottom))] md:pb-0" : undefined
+            mobileNav ? "pb-[calc(96px+env(safe-area-inset-bottom))] lg:pb-0" : undefined
           )}
         >
           <ContentContainer>{children}</ContentContainer>

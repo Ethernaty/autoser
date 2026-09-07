@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ROUTES } from "@/core/config/routes";
 import { cn } from "@/core/lib/utils";
@@ -34,6 +34,7 @@ import {
   fetchWorkOrderLines,
   fetchWorkOrderPayments,
   fetchWorkOrderTimeline,
+  fetchWorkspaceContext,
   mvpQueryKeys,
   setWorkOrderStatus,
   updateWorkOrderLine,
@@ -409,10 +410,14 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
     queryFn: () => fetchWorkOrderPayments(workOrderId)
   });
 
-  const timelineQuery = useQuery({
-    queryKey: mvpQueryKeys.workOrderTimeline(workOrderId, 100, 0),
-    queryFn: () => fetchWorkOrderTimeline(workOrderId, { limit: 50, offset: 0 })
+  const workspaceQuery = useQuery({ queryKey: mvpQueryKeys.workspaceContext, queryFn: fetchWorkspaceContext });
+  const timelineQuery = useInfiniteQuery({
+    queryKey: [...mvpQueryKeys.workOrderTimeline(workOrderId, 100, 0), "pages"],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => fetchWorkOrderTimeline(workOrderId, { limit: 50, offset: pageParam }),
+    getNextPageParam: (lastPage, pages) => lastPage.length === 50 ? pages.length * 50 : undefined
   });
+  const timeline = timelineQuery.data?.pages.flat() ?? [];
 
   const employeesQuery = useQuery({
     queryKey: mvpQueryKeys.employees("", "", EMPLOYEE_LOOKUP_LIMIT, 0),
@@ -603,7 +608,8 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
   const canSetCompletedPaid = remainingAmountValue <= 0;
   const canSetCompletedUnpaid = remainingAmountValue > 0;
   const canCancelOrder = paidAmountValue <= 0;
-  const canAddPayment = workOrderQuery.data?.status !== "cancelled";
+  const hasPaymentAccess = workspaceQuery.data?.can_accept_payments === true;
+  const canAddPayment = hasPaymentAccess && workOrderQuery.data?.status !== "cancelled";
 
   const runStatusTransition = async (status: WorkOrderStatus): Promise<void> => {
     setStatusActionError(null);
@@ -818,7 +824,7 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                       )}
                     </div>
 
-                    <div className="grid grid-cols-1 gap-1 pt-1 sm:grid-cols-[1fr_auto_auto]">
+                    <div className="grid min-w-0 grid-cols-1 gap-1 pt-1 2xl:grid-cols-[minmax(0,1fr)_auto_auto]">
                       <Combobox
                         id="assign-employee"
                         value={assigneePickerValue}
@@ -997,7 +1003,7 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                 </Button>
               }
             >
-              {!canAddPayment ? <p className="text-xs text-neutral-600">{t("work_order_detail.error.payment_not_allowed_for_cancelled")}</p> : null}
+              {!canAddPayment ? <p className="text-xs text-neutral-600">{t(hasPaymentAccess ? "work_order_detail.error.payment_not_allowed_for_cancelled" : "work_order_detail.error.payment_access_disabled")}</p> : null}
               {paymentsQuery.isLoading ? (
                 <p className="text-sm text-neutral-600">{t("work_order_detail.loading_payments")}</p>
               ) : paymentsQuery.error ? (
@@ -1016,7 +1022,7 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                         </div>
                         <div className="flex items-center gap-2">
                           <Badge tone={payment.voided_at ? "warning" : "neutral"}>{payment.voided_at ? t("work_order_detail.payments.voided") : t("work_order_detail.payment")}</Badge>
-                          {!payment.voided_at ? <Button size="sm" variant="ghost" onClick={() => setVoidPaymentId(payment.id)}>{t("work_order_detail.payments.void")}</Button> : null}
+                          {!payment.voided_at && hasPaymentAccess ? <Button size="sm" variant="ghost" onClick={() => setVoidPaymentId(payment.id)}>{t("work_order_detail.payments.void")}</Button> : null}
                         </div>
                       </div>
                     </Card>
@@ -1032,10 +1038,10 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                 <p className="text-sm text-neutral-600">{t("work_order_detail.loading_activity")}</p>
               ) : timelineQuery.error ? (
                 <p className="text-sm text-error">{timelineQuery.error.message}</p>
-              ) : timelineQuery.data?.length ? (
+              ) : timeline.length ? (
                 <div className="relative pl-6">
                   <div className="absolute bottom-1 left-[11px] top-1 w-px bg-neutral-200" aria-hidden />
-                  {timelineQuery.data.map((item, index) => {
+                  {timeline.map((item, index) => {
                     const presentation = timelinePresentation(item, t);
                     const styles = timelineKindStyles(presentation.kind);
                     const actor =
@@ -1046,7 +1052,7 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                     const metaParts = [actor, role, new Date(item.created_at).toLocaleString()].filter(Boolean);
 
                     return (
-                      <div key={item.id} className={cn("relative pb-2.5", index === timelineQuery.data.length - 1 && "pb-0")}>
+                      <div key={item.id} className={cn("relative pb-2.5", index === timeline.length - 1 && "pb-0")}>
                         <span
                           className={cn(
                             "absolute left-0 top-1.5 h-[10px] w-[10px] rounded-full ring-4 ring-neutral-0",
@@ -1089,6 +1095,7 @@ export function WorkOrderDetailScreen({ workOrderId }: { workOrderId: string }):
                 <p className="text-sm text-neutral-600">{t("work_order_detail.no_activity")}</p>
               )}
 
+              {timelineQuery.hasNextPage ? <Button loading={timelineQuery.isFetchingNextPage} onClick={() => void timelineQuery.fetchNextPage()}>{t("common.load_more")}</Button> : null}
               <Card className="border-neutral-200 bg-neutral-50/70 p-2">
                 <FormField id="timeline-comment" label={t("work_order_detail.comments.add_label")}>
                   <div className="space-y-2">

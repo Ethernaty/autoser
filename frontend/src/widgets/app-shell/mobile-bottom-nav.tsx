@@ -25,7 +25,7 @@ export function MobileBottomNav(): JSX.Element {
   const moreLabel = locale === "ru" ? "Ещё" : "More";
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-neutral-200 bg-neutral-0/95 backdrop-blur md:hidden" aria-label={t("shell.nav.primary")}>
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-neutral-200 bg-neutral-0/95 backdrop-blur lg:hidden" aria-label={t("shell.nav.primary")}>
       <div className="mx-auto w-full max-w-content px-2 pb-[max(8px,env(safe-area-inset-bottom))] pt-1.5">
         <ul className="grid grid-cols-5 gap-1">
           {primaryMobileItems.map((item) => {

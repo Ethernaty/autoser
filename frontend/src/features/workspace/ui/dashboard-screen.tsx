@@ -235,15 +235,21 @@ export function DashboardScreen(): JSX.Element {
   });
 
   const workOrdersQuery = useQuery({
-    queryKey: mvpQueryKeys.workOrders("", 40, 0, statusScope, assigneeScope),
+    queryKey: mvpQueryKeys.workOrders("", 1, 0, statusScope, assigneeScope),
     queryFn: () =>
       fetchWorkOrders({
         q: "",
-        limit: 40,
+        limit: 1,
         offset: 0,
         status_scope: statusScope,
         assignee_scope: assigneeScope
       })
+  });
+
+  const queueScope = statusScope === "all" ? "active" : statusScope;
+  const queueQuery = useQuery({
+    queryKey: mvpQueryKeys.workOrders("", 8, 0, queueScope, assigneeScope),
+    queryFn: () => fetchWorkOrders({ limit: 8, offset: 0, status_scope: queueScope, assignee_scope: assigneeScope })
   });
 
   const assigneeOptions = useMemo(() => {
@@ -266,28 +272,11 @@ export function DashboardScreen(): JSX.Element {
     return map;
   }, [employeesQuery.data?.items]);
 
-  const queueRows = useMemo(() => {
-    const rows = workOrdersQuery.data?.items ?? [];
-    const active = statusScope === "all" ? rows.filter((row) => row.status === "new" || row.status === "in_progress") : rows;
-    return active.slice(0, 8);
-  }, [workOrdersQuery.data?.items, statusScope]);
-
-  const allRows = useMemo(() => workOrdersQuery.data?.items ?? [], [workOrdersQuery.data?.items]);
-
-  const queueOutstandingAmount = useMemo(
-    () => allRows.reduce((total, row) => total + parseAmount(row.remaining_amount), 0),
-    [allRows]
-  );
-
-  const unassignedCount = useMemo(
-    () => allRows.filter((row) => row.assigned_employee_ids.length === 0 && !row.assigned_employee_id).length,
-    [allRows]
-  );
-
-  const completedAndPaidCount = useMemo(
-    () => allRows.filter((row) => row.status === "completed_paid").length,
-    [allRows]
-  );
+  const queueRows = queueQuery.data?.items ?? [];
+  const registrySummary = workOrdersQuery.data?.summary;
+  const queueOutstandingAmount = parseAmount(registrySummary?.outstanding_amount ?? 0);
+  const unassignedCount = registrySummary?.unassigned_count ?? 0;
+  const completedAndPaidCount = registrySummary?.completed_paid_count ?? 0;
 
   const monthlyRows = useMemo(
     () =>
@@ -299,12 +288,12 @@ export function DashboardScreen(): JSX.Element {
   );
 
   const collectionRate = useMemo(() => {
-    const paid = parseAmount(analyticsQuery.data?.paid_amount_30d ?? 0);
+    const paid = Math.max(0, parseAmount(registrySummary?.paid_amount ?? 0) - parseAmount(registrySummary?.cancelled_paid_amount ?? 0));
     const unpaid = queueOutstandingAmount;
     const total = paid + unpaid;
     if (total <= 0) return 0;
     return Math.round((paid / total) * 100);
-  }, [analyticsQuery.data?.paid_amount_30d, queueOutstandingAmount]);
+  }, [registrySummary, queueOutstandingAmount]);
 
   const activityRows = useMemo(() => {
     return (summaryQuery.data?.recent_activity ?? []).slice(0, 5).map((activity) => ({
@@ -422,8 +411,8 @@ export function DashboardScreen(): JSX.Element {
       </div>
 
       <StateBoundary
-        loading={analyticsQuery.isLoading || workOrdersQuery.isLoading}
-        error={analyticsQuery.error?.message ?? workOrdersQuery.error?.message}
+        loading={analyticsQuery.isLoading || workOrdersQuery.isLoading || queueQuery.isLoading}
+        error={analyticsQuery.error?.message ?? workOrdersQuery.error?.message ?? queueQuery.error?.message}
       >
         {analyticsQuery.data ? (
           <div className="space-y-3">
@@ -565,8 +554,8 @@ export function DashboardScreen(): JSX.Element {
 
                   <div className="mt-3 space-y-1.5 text-xs">
                     <div className="flex items-center justify-between rounded-lg bg-white/12 px-2 py-1.5">
-                      <span className="text-white/80">{t("dashboard.kpi.paid_30d")}</span>
-                      <span className="font-semibold tabular-nums">{formatCurrency(analyticsQuery.data.paid_amount_30d)}</span>
+                      <span className="text-white/80">{t("work_orders.kpi.paid")}</span>
+                      <span className="font-semibold tabular-nums">{formatCurrency(Math.max(0, parseAmount(registrySummary?.paid_amount ?? 0) - parseAmount(registrySummary?.cancelled_paid_amount ?? 0)))}</span>
                     </div>
                     <div className="flex items-center justify-between rounded-lg bg-white/12 px-2 py-1.5">
                       <span className="text-white/80">{t("dashboard.finance.unpaid_amount")}</span>

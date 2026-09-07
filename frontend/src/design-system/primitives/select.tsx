@@ -51,7 +51,7 @@ function parseOptions(children: React.ReactNode): ParsedOption[] {
 
     const rawValue = child.props.value;
     const value = rawValue == null ? "" : String(rawValue);
-    const label = typeof child.props.children === "string" ? child.props.children : String(child.props.children ?? value);
+    const label = React.Children.toArray(child.props.children).join("") || value;
 
     options.push({
       value,
@@ -230,7 +230,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
     };
 
     return (
-      <div className="relative w-full" ref={rootRef}>
+      <div className="relative min-w-0 w-full" ref={rootRef}>
         <select
           ref={ref}
           name={name}
@@ -254,7 +254,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           id={id}
           title={title}
           className={cn(
-            "flex w-full items-center justify-between text-left",
+            "flex min-w-0 max-w-full w-full items-center justify-between gap-2 text-left",
             selectVariants({ variant, invalid, size }),
             className
           )}
@@ -264,7 +264,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           disabled={disabled}
           onClick={() => setOpen((prev) => !prev)}
         >
-          <span className={cn("truncate", selectedOption ? "text-neutral-900" : "text-neutral-500")}>
+          <span className={cn("min-w-0 truncate", selectedOption ? "text-neutral-900" : "text-neutral-500")}>
             {triggerLabel ?? selectedOption?.label ?? ""}
           </span>
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-neutral-500" />
