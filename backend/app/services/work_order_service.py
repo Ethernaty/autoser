@@ -6,7 +6,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, delete, exists, func, or_, select, text
+from sqlalchemy import and_, case, delete, exists, func, or_, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -996,6 +996,17 @@ class WorkOrderService(BaseService):
                 )
                 for entity_id, (total_count, active_count, last_activity_at) in raw_map.items()
             }
+
+        return await self.execute_read(read_op)
+
+    async def get_client_financials(self, *, client_id: UUID) -> dict[str, Decimal]:
+        def read_op(db: Session) -> dict[str, Decimal]:
+            rows = WorkOrderRegistry(db=db, tenant_id=self.tenant_id).selection().where(Order.client_id == client_id).subquery()
+            paid, debt = db.execute(select(
+                func.coalesce(func.sum(rows.c.paid_amount), 0),
+                func.coalesce(func.sum(case((rows.c.status != OrderStatus.CANCELLED, rows.c.remaining_amount), else_=0)), 0),
+            )).one()
+            return {"total_paid": Decimal(paid), "total_debt": Decimal(debt)}
 
         return await self.execute_read(read_op)
 

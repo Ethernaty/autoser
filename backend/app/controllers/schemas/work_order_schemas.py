@@ -194,6 +194,8 @@ class WorkOrderRegistrySummary(BaseModel):
     new_count: int
     in_progress_count: int
     completed_count: int
+    completed_paid_count: int = 0
+    unassigned_count: int = 0
     unpaid_count: int
     order_amount: Decimal
     paid_amount: Decimal

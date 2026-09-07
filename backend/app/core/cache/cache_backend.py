@@ -127,6 +127,11 @@ def get_cache_backend(settings: Settings | None = None) -> CacheBackend:
     return MemoryCache(key_prefix=cfg.cache_key_prefix)
 
 
+@lru_cache(maxsize=1)
 def get_sync_cache_adapter() -> SyncCacheAdapter:
     """Return sync cache adapter for service layer."""
+    settings = get_settings()
+    if settings.cache_backend == "redis":
+        from app.core.cache.sync_redis_cache import SyncRedisCache
+        return SyncRedisCache(settings.redis_url, settings.cache_key_prefix)
     return SyncCacheAdapter(get_cache_backend())

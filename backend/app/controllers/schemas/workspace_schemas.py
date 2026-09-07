@@ -12,6 +12,7 @@ class WorkspaceContextResponse(BaseModel):
     workspace_name: str
     role: str
     user_id: UUID
+    can_accept_payments: bool = False
 
 
 class WorkspaceSettingsUpdateRequest(BaseModel):

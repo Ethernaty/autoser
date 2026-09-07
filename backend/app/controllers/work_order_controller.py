@@ -591,7 +591,7 @@ async def get_work_order_document(
                 paid_at=item.paid_at,
                 comment=item.comment,
             )
-            for item in payments
+            for item in payments if item.voided_at is None
         ],
     )
 

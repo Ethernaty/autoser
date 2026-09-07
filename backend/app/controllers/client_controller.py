@@ -179,13 +179,14 @@ async def get_client(
     vehicle_counts = await vehicle_service.count_by_client_ids(client_ids=[client.id])
     activity_map = await work_order_service.get_client_relation_stats(client_ids=[client.id])
     activity = activity_map.get(client.id)
+    financials = await work_order_service.get_client_financials(client_id=client.id)
     return _enrich_client_response(
         client=client,
         vehicle_count=vehicle_counts.get(client.id, 0),
         work_order_count=activity.total_count if activity is not None else 0,
         active_work_order_count=activity.active_count if activity is not None else 0,
         last_activity_at=activity.last_activity_at if activity is not None else None,
-    )
+    ).model_copy(update=financials)
 
 
 @router.get(

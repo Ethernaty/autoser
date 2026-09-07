@@ -13,6 +13,7 @@ from app.core.exceptions import AppError
 from app.core.request_context import UserRequestContext, get_current_tenant_id, get_current_user_context
 from app.middleware.permission_guard import RequirePermission
 from app.repositories.auth_repository import AuthRepository
+from app.repositories.membership_repository import MembershipRepository
 from app.core.database import SessionLocal
 from app.services.workspace_settings_service import WorkspaceSettingsService
 
@@ -38,6 +39,8 @@ def workspace_context(
         tenant = repo.get_tenant_by_id(context.tenant_id)
         if tenant is None:
             raise AppError(status_code=404, code="workspace_not_found", message="Workspace not found")
+        membership = MembershipRepository(db).get_for_user_and_tenant(user_id=context.user_id, tenant_id=context.tenant_id)
+        can_accept_payments = context.role in {"owner", "admin"} or bool(membership and membership.is_active and membership.can_accept_payments)
         transaction.commit()
         return WorkspaceContextResponse(
             workspace_id=tenant.id,
@@ -45,6 +48,7 @@ def workspace_context(
             workspace_name=tenant.name,
             role=str(context.role),
             user_id=context.user_id,
+            can_accept_payments=can_accept_payments,
         )
     except Exception:
         if "transaction" in locals() and transaction.is_active:

@@ -28,7 +28,7 @@ class EmployeeUpdateRequest(BaseModel):
 class EmployeeStatusRequest(BaseModel):
     is_active: bool
     job_title: str | None = None
-    can_accept_payments: bool
+    can_accept_payments: bool | None = None
 
 
 class EmployeeResponse(BaseModel):

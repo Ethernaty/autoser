@@ -8,6 +8,7 @@ from app.models.client import Client
 from app.models.order import Order, OrderStatus
 from app.models.payment import Payment
 from app.models.vehicle import Vehicle
+from app.models.work_order_assignee import WorkOrderAssignee
 from app.repositories.order_repository import OrderRepository
 
 
@@ -19,7 +20,9 @@ class WorkOrderRegistry(OrderRepository):
                 .group_by(Payment.order_id).subquery())
         paid_amount = func.coalesce(paid.c.amount, 0)
         remaining = case((Order.total_amount > paid_amount, Order.total_amount - paid_amount), else_=0)
-        stmt = (select(Order, paid_amount.label("paid_amount"), remaining.label("remaining_amount"))
+        unassigned = and_(Order.assigned_user_id.is_(None), ~exists(select(1).where(
+            WorkOrderAssignee.tenant_id == self.tenant_id, WorkOrderAssignee.order_id == Order.id)))
+        stmt = (select(Order, paid_amount.label("paid_amount"), remaining.label("remaining_amount"), unassigned.label("unassigned"))
                 .outerjoin(paid, paid.c.order_id == Order.id)
                 .where(Order.tenant_id == self.tenant_id,
                        *self._build_scope_criteria(status_scope=status_scope, assignee_scope=assignee_scope)))
@@ -73,6 +76,8 @@ class WorkOrderRegistry(OrderRepository):
             count_if(rows.c.status == OrderStatus.NEW).label("new_count"),
             count_if(rows.c.status == OrderStatus.IN_PROGRESS).label("in_progress_count"),
             count_if(rows.c.status.in_([OrderStatus.COMPLETED_UNPAID, OrderStatus.COMPLETED_PAID])).label("completed_count"),
+            count_if(rows.c.status == OrderStatus.COMPLETED_PAID).label("completed_paid_count"),
+            count_if(and_(rows.c.unassigned, rows.c.status.in_([OrderStatus.NEW, OrderStatus.IN_PROGRESS]))).label("unassigned_count"),
             count_if(and_(active, rows.c.remaining_amount > 0)).label("unpaid_count"),
             func.coalesce(func.sum(case((active, rows.c.total_amount), else_=0)), 0).label("order_amount"),
             func.coalesce(func.sum(rows.c.paid_amount), 0).label("paid_amount"),

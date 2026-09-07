@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -36,6 +37,8 @@ class ClientResponse(BaseModel):
     vehicle_count: int = 0
     work_order_count: int = 0
     active_work_order_count: int = 0
+    total_paid: Decimal | None = None
+    total_debt: Decimal | None = None
     last_activity_at: datetime | None = None
     version: int
     created_at: datetime
