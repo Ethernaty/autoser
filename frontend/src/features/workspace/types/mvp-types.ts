@@ -2,6 +2,28 @@ export type WorkOrderStatus = "new" | "in_progress" | "completed_unpaid" | "comp
 export type PaymentMethod = "cash" | "card" | "transfer" | "other";
 export type OrderLineType = "labor" | "part" | "misc";
 export type WorkOrderPaymentState = "unpaid" | "partial" | "paid";
+export type DashboardMode = "operations" | "analytics";
+export type DashboardPeriodScope = "3m" | "6m" | "12m";
+export type DashboardStatusScope =
+  | "all"
+  | "active"
+  | "completed"
+  | "cancelled"
+  | "completed_unpaid"
+  | "new"
+  | "in_progress"
+  | "completed_paid";
+export type DashboardAssigneeScope = "all" | "unassigned" | string;
+export type DashboardDensity = "compact" | "full";
+export type DashboardWidgetId =
+  | "kpi_row"
+  | "active_work_orders"
+  | "orders_by_month"
+  | "clients_by_month"
+  | "revenue_dynamics"
+  | "weekday_load"
+  | "client_sources"
+  | "popular_services";
 
 export type PagedResponse<T> = {
   items: T[];
@@ -77,7 +99,47 @@ export type DashboardAnalytics = {
   problematic_orders: AnalyticsProblemOrderItem[];
 };
 
+export type DashboardFilterDefaults = {
+  period: DashboardPeriodScope;
+  status_scope: DashboardStatusScope;
+  assignee_scope: DashboardAssigneeScope;
+};
+
+export type DashboardFilters = {
+  version: number;
+  defaults: DashboardFilterDefaults;
+};
+
+export type DashboardWidgetLayout = {
+  id: DashboardWidgetId;
+  order: number;
+  visible: boolean;
+  variant: string;
+};
+
+export type DashboardLayout = {
+  version: number;
+  density: DashboardDensity;
+  widgets: DashboardWidgetLayout[];
+};
+
+export type DashboardPreferences = {
+  mode: DashboardMode;
+  filters_json: DashboardFilters;
+  layout_json: DashboardLayout;
+  baseline_version: number;
+};
+
+export type DashboardPreferencesUpdatePayload = {
+  mode?: DashboardMode;
+  filters_json?: DashboardFilters;
+  layout_json?: DashboardLayout;
+  reset_layout?: boolean;
+  reset_filters?: boolean;
+};
+
 export type WorkspaceContextResponse = {
+  can_accept_payments: boolean;
   workspace_id: string;
   workspace_slug: string;
   workspace_name: string;
@@ -94,6 +156,7 @@ export type WorkspaceSettingsResponse = {
   timezone: string;
   currency: string;
   working_hours_note: string | null;
+  logo_data_url: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -105,6 +168,7 @@ export type WorkspaceSettingsUpdatePayload = {
   timezone?: string;
   currency?: string;
   working_hours_note?: string | null;
+  logo_data_url?: string | null;
 };
 
 export type ClientRecord = {
@@ -115,6 +179,12 @@ export type ClientRecord = {
   email: string | null;
   source: string | null;
   comment: string | null;
+  vehicle_count: number;
+  work_order_count: number;
+  active_work_order_count: number;
+  total_paid?: string | null;
+  total_debt?: string | null;
+  last_activity_at: string | null;
   version: number;
   created_at: string;
   updated_at: string;
@@ -141,11 +211,16 @@ export type VehicleRecord = {
   id: string;
   tenant_id: string;
   client_id: string;
+  client_name: string | null;
+  client_phone: string | null;
   plate_number: string;
   make_model: string;
   year: number | null;
   vin: string | null;
   comment: string | null;
+  work_order_count: number;
+  active_work_order_count: number;
+  last_activity_at: string | null;
   archived_at: string | null;
   created_at: string;
   updated_at: string;
@@ -177,6 +252,8 @@ export type EmployeeRecord = {
   email: string;
   role: string;
   is_active: boolean;
+  job_title: string | null;
+  can_accept_payments: boolean;
   version: number;
   created_at: string;
 };
@@ -186,6 +263,8 @@ export type EmployeeCreatePayload = {
   email?: string | null;
   password: string;
   role: string;
+  job_title?: string | null;
+  can_accept_payments?: boolean;
 };
 
 export type EmployeeUpdatePayload = {
@@ -194,16 +273,37 @@ export type EmployeeUpdatePayload = {
   password?: string;
   role?: string;
   is_active?: boolean;
+  job_title?: string | null;
+  can_accept_payments?: boolean;
 };
 
-export type WorkOrderRecord = {
+export type IntakeDetails = {
+  mileage?: number | null;
+  due_at?: string | null;
+  estimated_amount?: number | string | null;
+  diagnosis?: string | null;
+  intake_notes?: string | null;
+  attachments?: Array<{ id?: string | null; name: string; content_type: "image/png" | "image/jpeg" | "image/webp"; data_url: string; created_at?: string | null }>;
+};
+
+export type VehicleListResponse = PagedResponse<VehicleRecord> & {
+  summary: {
+    with_active_orders: number;
+    without_orders: number;
+    recent_added: number;
+  };
+};
+
+export type WorkOrderRecord = IntakeDetails & {
   id: string;
+  order_number: number;
   tenant_id: string;
   client_id: string;
   client_name?: string | null;
   vehicle_id: string | null;
   vehicle_plate_number?: string | null;
   vehicle_make_model?: string | null;
+  assigned_employee_ids: string[];
   assigned_employee_id: string | null;
   assigned_user_id: string | null;
   description: string;
@@ -217,21 +317,23 @@ export type WorkOrderRecord = {
   updated_at: string;
 };
 
-export type WorkOrderCreatePayload = {
+export type WorkOrderCreatePayload = IntakeDetails & {
   client_id: string;
   vehicle_id: string;
   description: string;
-  total_amount: number;
+  total_amount?: number;
   status?: WorkOrderStatus;
   assigned_employee_id?: string | null;
+  assigned_employee_ids?: string[];
 };
 
-export type WorkOrderUpdatePayload = {
+export type WorkOrderUpdatePayload = IntakeDetails & {
   description?: string;
   total_amount?: number;
   status?: WorkOrderStatus;
   vehicle_id?: string;
   assigned_employee_id?: string | null;
+  assigned_employee_ids?: string[];
 };
 
 export type WorkOrderOrderLine = {
@@ -302,6 +404,7 @@ export type WorkOrderTimelineEvent = {
 
 export type WorkOrderHistoryItem = {
   id: string;
+  order_number: number;
   client_id: string;
   client_name: string | null;
   vehicle_id: string | null;
@@ -309,6 +412,9 @@ export type WorkOrderHistoryItem = {
   vehicle_make_model: string | null;
   description: string;
   work_summary: string | null;
+  mileage: number | null;
+  due_at: string | null;
+  diagnosis: string | null;
   status: WorkOrderStatus;
   total_amount: string;
   paid_amount: string;
@@ -328,6 +434,13 @@ export type SupportTicketRecord = {
   subject: string;
   category: SupportTicketCategory;
   message: string;
+  messages: Array<{
+    id: string;
+    author_user_id: string;
+    author_role: string;
+    message: string;
+    created_at: string;
+  }>;
   status: SupportTicketStatus;
   created_at: string;
   updated_at: string;
@@ -340,3 +453,15 @@ export type SupportTicketCreatePayload = {
   category: SupportTicketCategory;
   message: string;
 };
+
+export type WorkOrderRegistrySummary = {
+  completed_paid_count: number; unassigned_count: number;
+  count: number; new_count: number; in_progress_count: number; completed_count: number; unpaid_count: number;
+  order_amount: string; paid_amount: string; outstanding_amount: string; cancelled_paid_amount: string;
+};
+export type WorkOrderListParams = {
+  q?: string; limit?: number; offset?: number; status_scope?: DashboardStatusScope;
+  assignee_scope?: DashboardAssigneeScope; payment_scope?: string; date_from?: string; date_to?: string;
+  sort?: string; overdue?: boolean;
+};
+export type WorkOrderListResponse = PagedResponse<WorkOrderRecord> & { summary?: WorkOrderRegistrySummary };

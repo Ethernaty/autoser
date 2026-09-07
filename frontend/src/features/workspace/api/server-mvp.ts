@@ -1,3 +1,4 @@
+import type { WorkOrderListParams, WorkOrderListResponse } from "@/features/workspace/types/mvp-types";
 import "server-only";
 
 import { backendRequest } from "@/shared/api/backend-client";
@@ -8,6 +9,10 @@ import type {
   ClientRecord,
   ClientUpdatePayload,
   DashboardAnalytics,
+  DashboardAssigneeScope,
+  DashboardPreferences,
+  DashboardPreferencesUpdatePayload,
+  DashboardStatusScope,
   DashboardSummary,
   EmployeeCreatePayload,
   EmployeeRecord,
@@ -76,6 +81,24 @@ function assertTenantScopedItem<T extends { tenant_id: string }>(
   return payload;
 }
 
+function sanitizePositiveInt(value: number | undefined, fallback: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return fallback;
+  const normalized = Math.trunc(value as number);
+  if (normalized < min) return min;
+  if (normalized > max) return max;
+  return normalized;
+}
+
+function sanitizeAssigneeScope(value: DashboardAssigneeScope | undefined): string {
+  if (!value) return "all";
+  const normalized = String(value).trim();
+  if (!normalized) return "all";
+  if (normalized === "all" || normalized === "unassigned") return normalized;
+  if (normalized.length > 64) return "all";
+  if (!/^[a-zA-Z0-9@._:-]+$/.test(normalized)) return "all";
+  return normalized;
+}
+
 export async function getWorkspaceContext(context: WorkspaceContext): Promise<WorkspaceContextResponse> {
   return backendRequest<WorkspaceContextResponse>("/workspace/context", {
     method: "GET",
@@ -112,9 +135,34 @@ export async function getDashboardSummary(context: WorkspaceContext, recentLimit
   });
 }
 
-export async function getDashboardAnalytics(context: WorkspaceContext, months = 12): Promise<DashboardAnalytics> {
+export async function getDashboardPreferences(context: WorkspaceContext): Promise<DashboardPreferences> {
+  return backendRequest<DashboardPreferences>("/dashboard/preferences", {
+    method: "GET",
+    headers: authHeader(context)
+  });
+}
+
+export async function patchDashboardPreferences(
+  context: WorkspaceContext,
+  payload: DashboardPreferencesUpdatePayload
+): Promise<DashboardPreferences> {
+  return backendRequest<DashboardPreferences>("/dashboard/preferences", {
+    method: "PATCH",
+    headers: authHeader(context),
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function getDashboardAnalytics(
+  context: WorkspaceContext,
+  months = 12,
+  statusScope: DashboardStatusScope = "all",
+  assigneeScope: DashboardAssigneeScope = "all"
+): Promise<DashboardAnalytics> {
   const query = new URLSearchParams();
-  query.set("months", String(Math.min(24, Math.max(3, months))));
+  query.set("months", String(sanitizePositiveInt(months, 12, 3, 24)));
+  query.set("status_scope", statusScope);
+  query.set("assignee_scope", sanitizeAssigneeScope(assigneeScope));
   return backendRequest<DashboardAnalytics>(`/dashboard/analytics?${query.toString()}`, {
     method: "GET",
     headers: authHeader(context)
@@ -123,9 +171,10 @@ export async function getDashboardAnalytics(context: WorkspaceContext, months = 
 
 export async function listClients(
   context: WorkspaceContext,
-  params: { q?: string; limit?: number; offset?: number }
+  params: { q?: string; limit?: number; offset?: number; sort?: string; activity?: string; source?: string }
 ): Promise<PagedResponse<ClientRecord>> {
   const query = new URLSearchParams();
+  for (const key of ["sort", "activity", "source"] as const) if (params[key]) query.set(key, params[key]!);
   if (params.q) {
     query.set("q", params.q);
   }
@@ -303,8 +352,8 @@ export async function listEmployees(
   if (params.role) {
     query.set("role", params.role);
   }
-  query.set("limit", String(params.limit ?? 20));
-  query.set("offset", String(params.offset ?? 0));
+  query.set("limit", String(sanitizePositiveInt(params.limit, 20, 1, 50)));
+  query.set("offset", String(sanitizePositiveInt(params.offset, 0, 0, 100000)));
 
   const payload = await backendRequest<PagedResponse<EmployeeRecord>>(`/employees/?${query.toString()}`, {
     method: "GET",
@@ -371,16 +420,22 @@ export async function patchEmployeeStatus(
 
 export async function listWorkOrders(
   context: WorkspaceContext,
-  params: { q?: string; limit?: number; offset?: number }
-): Promise<PagedResponse<WorkOrderRecord>> {
+  params: WorkOrderListParams
+): Promise<WorkOrderListResponse> {
   const query = new URLSearchParams();
   if (params.q) {
     query.set("q", params.q);
   }
-  query.set("limit", String(params.limit ?? 20));
-  query.set("offset", String(params.offset ?? 0));
+  query.set("status_scope", params.status_scope ?? "all");
+  query.set("assignee_scope", sanitizeAssigneeScope(params.assignee_scope));
+  query.set("limit", String(sanitizePositiveInt(params.limit, 20, 1, 200)));
+  query.set("offset", String(sanitizePositiveInt(params.offset, 0, 0, 100000)));
 
-  const payload = await backendRequest<PagedResponse<WorkOrderRecord>>(`/work-orders/?${query.toString()}`, {
+  for (const key of ["payment_scope", "date_from", "date_to", "sort"] as const) {
+    if (params[key]) query.set(key, params[key]!);
+  }
+  if (params.overdue) query.set("overdue", "true");
+  const payload = await backendRequest<WorkOrderListResponse>(`/work-orders/?${query.toString()}`, {
     method: "GET",
     headers: authHeader(context)
   });
@@ -472,12 +527,12 @@ export async function setWorkOrderStatus(
 export async function assignWorkOrder(
   context: WorkspaceContext,
   workOrderId: string,
-  employeeId: string | null
+  employeeIds: string[]
 ): Promise<WorkOrderRecord> {
   const workOrder = await backendRequest<WorkOrderRecord>(`/work-orders/${workOrderId}/assign`, {
     method: "POST",
     headers: authHeader(context),
-    body: JSON.stringify({ employee_id: employeeId })
+    body: JSON.stringify({ employee_ids: employeeIds })
   });
   assertTenantScope(context, workOrder.tenant_id, "work_order");
   return workOrder;
@@ -574,6 +629,21 @@ export async function createWorkOrderPayment(
   return payment;
 }
 
+export async function voidWorkOrderPayment(
+  context: WorkspaceContext,
+  workOrderId: string,
+  paymentId: string,
+  reason: string
+): Promise<PaymentRecord> {
+  const payment = await backendRequest<PaymentRecord>(`/work-orders/${workOrderId}/payments/${paymentId}/void`, {
+    method: "POST",
+    headers: authHeader(context),
+    body: JSON.stringify({ reason })
+  });
+  assertTenantScope(context, payment.tenant_id, "payment");
+  return payment;
+}
+
 export async function listSupportTickets(
   context: WorkspaceContext,
   params: {
@@ -629,6 +699,19 @@ export async function patchSupportTicketStatus(
     method: "PATCH",
     headers: authHeader(context),
     body: JSON.stringify({ status })
+  });
+  return assertTenantScopedItem(context, ticket, "support_ticket");
+}
+
+export async function addSupportTicketMessage(
+  context: WorkspaceContext,
+  ticketId: string,
+  message: string
+): Promise<SupportTicketRecord> {
+  const ticket = await backendRequest<SupportTicketRecord>(`/support/tickets/${ticketId}/messages`, {
+    method: "POST",
+    headers: authHeader(context),
+    body: JSON.stringify({ message })
   });
   return assertTenantScopedItem(context, ticket, "support_ticket");
 }

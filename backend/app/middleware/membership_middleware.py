@@ -168,7 +168,7 @@ class MembershipValidationMiddleware(BaseHTTPMiddleware):
                 return None
             repo = MembershipRepository(uow.session)
             membership = repo.get_for_user_and_tenant(user_id=user_id, tenant_id=tenant_id)
-            if membership is None:
+            if membership is None or not membership.is_active:
                 return None
             return MembershipSnapshot(role=membership.role.value, version=int(membership.version))
 

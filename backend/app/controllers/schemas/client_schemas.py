@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -33,6 +34,12 @@ class ClientResponse(BaseModel):
     email: str | None
     source: str | None
     comment: str | None
+    vehicle_count: int = 0
+    work_order_count: int = 0
+    active_work_order_count: int = 0
+    total_paid: Decimal | None = None
+    total_debt: Decimal | None = None
+    last_activity_at: datetime | None = None
     version: int
     created_at: datetime
     updated_at: datetime
@@ -43,6 +50,12 @@ class ClientListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+    summary: dict[str, int] = Field(default_factory=dict)
+
+
+class ClientImportRequest(BaseModel):
+    csv_text: str = Field(min_length=1, max_length=1048576)
+    commit: bool = False
 
 
 class ClientBatchRequest(BaseModel):

@@ -3,10 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ROUTES } from "@/core/config/routes";
-import { formatPhoneInput, normalizePhoneForSubmit } from "@/core/lib/phone";
+import { formatPhoneForDisplay, formatPhoneInput, normalizePhoneForSubmit } from "@/core/lib/phone";
 import { Button, Card, FormActions, FormField, Input, PhoneInput, Textarea } from "@/design-system/primitives";
 import { PageLayout, Section, StateBoundary } from "@/design-system/patterns";
 import {
@@ -48,10 +48,13 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
     queryFn: () => fetchVehiclesByClient(clientId)
   });
 
-  const historyQuery = useQuery({
-    queryKey: mvpQueryKeys.clientWorkOrders(clientId, 50, 0),
-    queryFn: () => fetchClientWorkOrders(clientId, { limit: 50, offset: 0 })
+  const historyQuery = useInfiniteQuery({
+    queryKey: [...mvpQueryKeys.clientWorkOrders(clientId, 50, 0), "pages"],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => fetchClientWorkOrders(clientId, { limit: 50, offset: pageParam }),
+    getNextPageParam: (lastPage, pages) => lastPage.length === 50 ? pages.length * 50 : undefined
   });
+  const history = historyQuery.data?.pages.flat() ?? [];
 
   const updateMutation = useMutation({
     mutationFn: (payload: Parameters<typeof updateClient>[1]) => updateClient(clientId, payload),
@@ -85,9 +88,11 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
               title={clientQuery.data.name}
               description={`${t("work_orders.created")} ${new Date(clientQuery.data.created_at).toLocaleString()}`}
               actions={
-                <Link href={ROUTES.clients}>
-                  <Button variant="secondary">{t("clients.back")}</Button>
-                </Link>
+                <div className="flex flex-wrap gap-2">
+                  <Link href={`${ROUTES.workOrderNew}?client_id=${clientId}` as Route}><Button>{t("work_orders.new")}</Button></Link>
+                  <Link href={`${ROUTES.vehicles}?create=1&client_id=${clientId}` as Route}><Button variant="secondary">{t("vehicles.add")}</Button></Link>
+                  <Link href={ROUTES.clients}><Button variant="secondary">{t("clients.back")}</Button></Link>
+                </div>
               }
             >
               <div className="grid grid-cols-1 gap-2 lg:grid-cols-[320px_1fr]">
@@ -95,7 +100,8 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
                   <h3 className="text-sm font-semibold text-neutral-900">{t("client_detail.contact_profile")}</h3>
                   <div className="space-y-1 text-sm text-neutral-700">
                     <p>
-                      <span className="text-neutral-500">{t("common.phone")}:</span> {clientQuery.data.phone}
+                      <span className="text-neutral-500">{t("common.phone")}:</span>{" "}
+                      <a className="text-primary hover:underline" href={`tel:${clientQuery.data.phone}`}>{formatPhoneForDisplay(clientQuery.data.phone)}</a>
                     </p>
                     <p>
                       <span className="text-neutral-500">{t("common.email")}:</span> {clientQuery.data.email ?? t("common.not_provided")}
@@ -104,11 +110,13 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
                       <span className="text-neutral-500">{t("clients.form.source")}:</span> {clientQuery.data.source ?? t("common.not_provided")}
                     </p>
                     <p>
-                      <span className="text-neutral-500">{t("common.vehicles")}:</span> {vehiclesQuery.data?.length ?? 0}
+                      <span className="text-neutral-500">{t("common.vehicles")}:</span> {clientQuery.data.vehicle_count ?? 0}
                     </p>
                     <p>
-                      <span className="text-neutral-500">{t("client_detail.visits")}:</span> {historyQuery.data?.length ?? 0}
+                      <span className="text-neutral-500">{t("client_detail.visits")}:</span> {clientQuery.data.work_order_count ?? 0}
                     </p>
+                    <p><span className="text-neutral-500">{t("client_detail.total_paid")}:</span> {clientQuery.data.total_paid == null ? "—" : formatMoney(clientQuery.data.total_paid)}</p>
+                    <p><span className="text-neutral-500">{t("client_detail.total_debt")}:</span> {clientQuery.data.total_debt == null ? "—" : formatMoney(clientQuery.data.total_debt)}</p>
                   </div>
                 </Card>
 
@@ -191,9 +199,9 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
                 <p className="text-sm text-neutral-600">{t("client_detail.loading_history")}</p>
               ) : historyQuery.error ? (
                 <p className="text-sm text-error">{historyQuery.error.message}</p>
-              ) : historyQuery.data?.length ? (
+              ) : history.length ? (
                 <div className="space-y-1">
-                  {historyQuery.data.map((visit) => (
+                  {history.map((visit) => (
                     <Card key={visit.id} className="border-neutral-200 p-2">
                       <div className="flex flex-wrap items-start justify-between gap-1">
                         <div>
@@ -208,6 +216,7 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
                             </p>
                           ) : null}
                           <p className="text-xs text-neutral-600">{t("client_detail.work_summary")}: {visit.work_summary ?? t("client_detail.no_line_items")}</p>
+                          {visit.mileage != null ? <p className="text-xs text-neutral-600">{t("work_order_intake.mileage")}: {visit.mileage.toLocaleString()}</p> : null}
                         </div>
                         <div className="min-w-[180px] text-right">
                           <OrderStatusBadge status={visit.status} />
@@ -215,13 +224,9 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
                           <p className="text-xs text-neutral-600">
                             {t("work_orders.kpi.paid")}: {formatMoney(visit.paid_amount)} | {t("work_orders.kpi.remaining")}: {formatMoney(visit.remaining_amount)}
                           </p>
-                          {visit.vehicle_id ? (
-                            <Link href={ROUTES.vehicleDetail(visit.vehicle_id) as Route}>
-                              <Button variant="secondary" size="sm" className="mt-1">
-                                {t("common.open")}
-                              </Button>
-                            </Link>
-                          ) : null}
+                          <Link href={ROUTES.workOrderDetail(visit.id) as Route}>
+                            <Button variant="secondary" size="sm" className="mt-1">{t("common.open")}</Button>
+                          </Link>
                         </div>
                       </div>
                     </Card>
@@ -230,6 +235,7 @@ export function ClientDetailScreen({ clientId }: { clientId: string }): JSX.Elem
               ) : (
                 <p className="text-sm text-neutral-600">{t("client_detail.history.empty")}</p>
               )}
+              {historyQuery.hasNextPage ? <Button variant="secondary" loading={historyQuery.isFetchingNextPage} onClick={() => void historyQuery.fetchNextPage()}>{t("common.load_more")}</Button> : null}
             </Section>
           </>
         ) : null}

@@ -3,6 +3,7 @@ from app.models.audit_log import AuditLog
 from app.models.base import Base, BaseModel, TenantScopedMixin
 from app.models.billing_event import BillingEvent
 from app.models.client import Client
+from app.models.dashboard_preference import DashboardPreference
 from app.models.idempotency_key import IdempotencyKey, IdempotencyStatus
 from app.models.integration_credential import IntegrationCredential
 from app.models.membership import Membership, MembershipRole
@@ -21,6 +22,7 @@ from app.models.webhook_endpoint import WebhookEndpoint
 from app.models.webhook_event import WebhookEvent
 from app.models.workspace_settings import WorkspaceSettings
 from app.models.user import User
+from app.models.work_order_assignee import WorkOrderAssignee
 
 __all__ = [
     "Base",
@@ -30,6 +32,7 @@ __all__ = [
     "AuditLog",
     "BillingEvent",
     "Client",
+    "DashboardPreference",
     "IdempotencyKey",
     "IdempotencyStatus",
     "IntegrationCredential",
@@ -57,4 +60,5 @@ __all__ = [
     "WebhookEvent",
     "WebhookDelivery",
     "WorkspaceSettings",
+    "WorkOrderAssignee",
 ]

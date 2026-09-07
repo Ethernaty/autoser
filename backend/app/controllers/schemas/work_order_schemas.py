@@ -4,40 +4,63 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from typing import Literal
 
 from app.models.order import OrderStatus
 from app.models.order_line import OrderLineType
 from app.models.payment import PaymentMethod
 
 
-class WorkOrderCreateRequest(BaseModel):
+class OrderAttachment(BaseModel):
+    id: UUID | None = None
+    name: str = Field(min_length=1, max_length=120)
+    content_type: Literal["image/png", "image/jpeg", "image/webp"]
+    data_url: str = Field(min_length=20, max_length=700_000)
+    created_at: datetime | None = None
+
+
+class IntakeDetails(BaseModel):
+    mileage: int | None = Field(default=None, ge=0, le=10000000)
+    due_at: AwareDatetime | None = None
+    estimated_amount: Decimal | None = Field(default=None, ge=0, le=9999999999)
+    diagnosis: str | None = Field(default=None, max_length=5000)
+    intake_notes: str | None = Field(default=None, max_length=5000)
+    attachments: list[OrderAttachment] = Field(default_factory=list, max_length=5)
+
+
+class WorkOrderCreateRequest(IntakeDetails):
     client_id: UUID
     vehicle_id: UUID
     description: str = Field(min_length=1, max_length=5000)
-    total_amount: Decimal | None = Field(default=None, gt=0)
-    price: Decimal | None = Field(default=None, gt=0)
+    total_amount: Decimal | None = Field(default=None, ge=0)
+    price: Decimal | None = Field(default=None, ge=0)
     status: OrderStatus = OrderStatus.NEW
     assigned_employee_id: UUID | None = None
     assigned_user_id: UUID | None = None
-
-    @model_validator(mode="after")
-    def validate_amount(self) -> "WorkOrderCreateRequest":
-        if self.total_amount is None and self.price is None:
-            raise ValueError("total_amount is required")
-        return self
+    assigned_employee_ids: list[UUID] | None = None
 
     @property
     def effective_total_amount(self) -> Decimal:
-        assert self.total_amount is not None or self.price is not None
-        return self.total_amount if self.total_amount is not None else self.price  # type: ignore[return-value]
+        if self.total_amount is not None:
+            return self.total_amount
+        if self.price is not None:
+            return self.price
+        return Decimal("0.00")
 
     @property
     def effective_assignee_id(self) -> UUID | None:
         return self.assigned_employee_id or self.assigned_user_id
 
+    @property
+    def effective_assignee_ids(self) -> list[UUID]:
+        if self.assigned_employee_ids is not None:
+            return self.assigned_employee_ids
+        assignee_id = self.effective_assignee_id
+        return [assignee_id] if assignee_id is not None else []
 
-class WorkOrderUpdateRequest(BaseModel):
+
+class WorkOrderUpdateRequest(IntakeDetails):
     description: str | None = Field(default=None, min_length=1, max_length=5000)
     total_amount: Decimal | None = Field(default=None, gt=0)
     price: Decimal | None = Field(default=None, gt=0)
@@ -45,6 +68,7 @@ class WorkOrderUpdateRequest(BaseModel):
     vehicle_id: UUID | None = None
     assigned_employee_id: UUID | None = None
     assigned_user_id: UUID | None = None
+    assigned_employee_ids: list[UUID] | None = None
 
     @property
     def effective_assignee_id(self) -> UUID | None:
@@ -58,10 +82,21 @@ class WorkOrderStatusRequest(BaseModel):
 class WorkOrderAssignRequest(BaseModel):
     employee_id: UUID | None = None
     user_id: UUID | None = None
+    employee_ids: list[UUID] | None = None
+    user_ids: list[UUID] | None = None
 
     @property
     def effective_employee_id(self) -> UUID | None:
         return self.employee_id or self.user_id
+
+    @property
+    def effective_employee_ids(self) -> list[UUID]:
+        if self.employee_ids is not None:
+            return self.employee_ids
+        if self.user_ids is not None:
+            return self.user_ids
+        single = self.effective_employee_id
+        return [single] if single is not None else []
 
 
 class WorkOrderAttachVehicleRequest(BaseModel):
@@ -127,14 +162,20 @@ class PaymentResponse(BaseModel):
     created_at: datetime
 
 
-class WorkOrderResponse(BaseModel):
+class PaymentVoidRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class WorkOrderResponse(IntakeDetails):
     id: UUID
+    order_number: int
     tenant_id: UUID
     client_id: UUID
     client_name: str | None = None
     vehicle_id: UUID | None
     vehicle_plate_number: str | None = None
     vehicle_make_model: str | None = None
+    assigned_employee_ids: list[UUID] = Field(default_factory=list)
     assigned_employee_id: UUID | None
     assigned_user_id: UUID | None
     description: str
@@ -148,7 +189,22 @@ class WorkOrderResponse(BaseModel):
     updated_at: datetime
 
 
+class WorkOrderRegistrySummary(BaseModel):
+    count: int
+    new_count: int
+    in_progress_count: int
+    completed_count: int
+    completed_paid_count: int = 0
+    unassigned_count: int = 0
+    unpaid_count: int
+    order_amount: Decimal
+    paid_amount: Decimal
+    outstanding_amount: Decimal
+    cancelled_paid_amount: Decimal
+
+
 class WorkOrderListResponse(BaseModel):
+    summary: WorkOrderRegistrySummary | None = None
     items: list[WorkOrderResponse]
     total: int
     limit: int
@@ -172,6 +228,7 @@ class WorkOrderTimelineCommentRequest(BaseModel):
 
 class WorkOrderHistoryItemResponse(BaseModel):
     id: UUID
+    order_number: int
     client_id: UUID
     client_name: str | None = None
     vehicle_id: UUID | None
@@ -179,6 +236,9 @@ class WorkOrderHistoryItemResponse(BaseModel):
     vehicle_make_model: str | None = None
     description: str
     work_summary: str | None = None
+    mileage: int | None = None
+    due_at: datetime | None = None
+    diagnosis: str | None = None
     status: OrderStatus
     total_amount: Decimal
     paid_amount: Decimal

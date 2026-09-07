@@ -52,7 +52,7 @@ function ChartMountGuard({ children }: { children: React.ReactNode }): JSX.Eleme
 export function HeroOrdersTrendChart(): JSX.Element {
   return (
     <ChartMountGuard>
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
         <AreaChart data={landingVisualData.heroTrend} margin={{ top: 6, right: 6, left: -18, bottom: 0 }}>
           <defs>
             <linearGradient id="heroOrdersGradient" x1="0" y1="0" x2="0" y2="1">
@@ -74,7 +74,7 @@ export function HeroOrdersTrendChart(): JSX.Element {
 export function StatusDistributionChart(): JSX.Element {
   return (
     <ChartMountGuard>
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
         <PieChart>
           <Pie
             data={landingVisualData.statusDistribution}
@@ -101,7 +101,7 @@ export function StatusDistributionChart(): JSX.Element {
 export function PayrollBarChart(): JSX.Element {
   return (
     <ChartMountGuard>
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
         <BarChart data={landingVisualData.payrollBars} margin={{ top: 6, right: 8, left: -20, bottom: 0 }}>
           <CartesianGrid stroke="hsl(var(--neutral-200))" strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="name" tick={{ fontSize: 11, fill: "hsl(var(--neutral-500))" }} axisLine={false} tickLine={false} />
@@ -122,7 +122,7 @@ export function PayrollBarChart(): JSX.Element {
 export function ReturnDynamicsChart(): JSX.Element {
   return (
     <ChartMountGuard>
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
         <AreaChart data={landingVisualData.returnDynamics} margin={{ top: 6, right: 6, left: -18, bottom: 0 }}>
           <defs>
             <linearGradient id="returnGradient" x1="0" y1="0" x2="0" y2="1">
@@ -144,7 +144,7 @@ export function ReturnDynamicsChart(): JSX.Element {
 export function OrderFlowChart(): JSX.Element {
   return (
     <ChartMountGuard>
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
         <BarChart data={landingVisualData.orderFlow} layout="vertical" margin={{ top: 6, right: 8, left: 8, bottom: 0 }}>
           <CartesianGrid stroke="hsl(var(--neutral-200))" strokeDasharray="3 3" horizontal={false} />
           <XAxis type="number" hide />

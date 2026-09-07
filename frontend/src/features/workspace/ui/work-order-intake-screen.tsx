@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import type { Route } from "next";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -17,21 +17,24 @@ import { useI18n } from "@/shared/i18n";
 const LOOKUP_LIMIT = 50;
 
 type IntakeMode = "select" | "create";
+type IntakePhoto = { name: string; content_type: "image/png" | "image/jpeg" | "image/webp"; data_url: string };
 
 type CreateWorkOrderForm = {
   client_id: string;
   vehicle_id: string;
   assigned_employee_id: string;
   description: string;
-  total_amount: string;
+  diagnosis: string;
+  mileage: string;
+  due_at: string;
+  estimated_amount: string;
+  intake_notes: string;
 };
 
 type NewClientForm = {
   name: string;
   phone: string;
   email: string;
-  source: string;
-  comment: string;
 };
 
 type NewVehicleForm = {
@@ -39,7 +42,6 @@ type NewVehicleForm = {
   make_model: string;
   year: string;
   vin: string;
-  comment: string;
 };
 
 function defaultWorkOrderForm(): CreateWorkOrderForm {
@@ -48,7 +50,11 @@ function defaultWorkOrderForm(): CreateWorkOrderForm {
     vehicle_id: "",
     assigned_employee_id: "",
     description: "",
-    total_amount: ""
+    diagnosis: "",
+    mileage: "",
+    due_at: "",
+    estimated_amount: "",
+    intake_notes: ""
   };
 }
 
@@ -56,9 +62,7 @@ function defaultNewClientForm(): NewClientForm {
   return {
     name: "",
     phone: "",
-    email: "",
-    source: "",
-    comment: ""
+    email: ""
   };
 }
 
@@ -67,14 +71,31 @@ function defaultNewVehicleForm(): NewVehicleForm {
     plate_number: "",
     make_model: "",
     year: "",
-    vin: "",
-    comment: ""
+    vin: ""
   };
+}
+
+const KNOWN_EMPLOYEE_ROLES = ["owner", "admin", "manager", "employee"] as const;
+type KnownEmployeeRole = (typeof KNOWN_EMPLOYEE_ROLES)[number];
+
+function normalizeRoleValue(rawRole: string | null | undefined): KnownEmployeeRole | null {
+  if (!rawRole) return null;
+  const normalized = rawRole.trim().toLowerCase().replace(/[^a-z_]/g, "");
+  return (KNOWN_EMPLOYEE_ROLES as readonly string[]).includes(normalized) ? (normalized as KnownEmployeeRole) : null;
+}
+
+function employeeRoleLabel(rawRole: string | null | undefined, t: (key: string) => string): string {
+  const normalized = normalizeRoleValue(rawRole);
+  if (normalized) {
+    return t(`employees.role.${normalized}`);
+  }
+  return (rawRole ?? "").replace(/[,\s]+$/g, "").trim() || t("employees.role.employee");
 }
 
 export function WorkOrderIntakeScreen(): JSX.Element {
   const { t } = useI18n();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const vehicleSectionRef = useRef<HTMLElement | null>(null);
   const workOrderSectionRef = useRef<HTMLElement | null>(null);
@@ -87,6 +108,41 @@ export function WorkOrderIntakeScreen(): JSX.Element {
   const [newClientForm, setNewClientForm] = useState<NewClientForm>(defaultNewClientForm());
   const [newVehicleForm, setNewVehicleForm] = useState<NewVehicleForm>(defaultNewVehicleForm());
   const [formError, setFormError] = useState<string | null>(null);
+  const [clientSearch, setClientSearch] = useState("");
+  const [draftRestored, setDraftRestored] = useState(false);
+  const [photos, setPhotos] = useState<IntakePhoto[]>([]);
+
+  useEffect(() => {
+    const preselectedClient = searchParams.get("client_id") ?? "";
+    const preselectedVehicle = searchParams.get("vehicle_id") ?? "";
+    const saved = window.sessionStorage.getItem("autoservice:intake-draft");
+    if (saved) {
+      try {
+        setWorkOrderForm({ ...defaultWorkOrderForm(), ...JSON.parse(saved) });
+        setDraftRestored(true);
+      } catch {
+        window.sessionStorage.removeItem("autoservice:intake-draft");
+      }
+    }
+    if (preselectedClient || preselectedVehicle) {
+      setWorkOrderForm((current) => ({
+        ...current,
+        client_id: preselectedClient || current.client_id,
+        vehicle_id: preselectedVehicle || current.vehicle_id
+      }));
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const hasDraft = Object.values(workOrderForm).some(Boolean);
+    if (hasDraft) window.sessionStorage.setItem("autoservice:intake-draft", JSON.stringify(workOrderForm));
+    const warn = (event: BeforeUnloadEvent): void => {
+      if (!hasDraft) return;
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [workOrderForm]);
 
   useEffect(() => {
     const previousClientId = prevClientIdRef.current;
@@ -105,8 +161,8 @@ export function WorkOrderIntakeScreen(): JSX.Element {
   }, [workOrderForm.vehicle_id]);
 
   const clientsLookupQuery = useQuery({
-    queryKey: mvpQueryKeys.clients("", LOOKUP_LIMIT, 0),
-    queryFn: () => fetchClients({ limit: LOOKUP_LIMIT, offset: 0 })
+    queryKey: mvpQueryKeys.clients(clientSearch, LOOKUP_LIMIT, 0),
+    queryFn: () => fetchClients({ q: clientSearch, limit: LOOKUP_LIMIT, offset: 0 })
   });
 
   const vehiclesByClientQuery = useQuery({
@@ -171,8 +227,6 @@ export function WorkOrderIntakeScreen(): JSX.Element {
     const name = newClientForm.name.trim();
     const phone = normalizePhoneForSubmit(newClientForm.phone);
     const email = newClientForm.email.trim();
-    const source = newClientForm.source.trim();
-    const comment = newClientForm.comment.trim();
 
     if (!name || !phone) {
       setFormError(t("work_order_intake.error.client_required"));
@@ -196,9 +250,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
     const createdClient = await createClientMutation.mutateAsync({
       name,
       phone,
-      email: email || null,
-      source: source || null,
-      comment: comment || null
+      email: email || null
     });
 
     setWorkOrderForm((prev) => ({
@@ -226,7 +278,6 @@ export function WorkOrderIntakeScreen(): JSX.Element {
 
     const year = newVehicleForm.year.trim();
     const vin = normalizeVinForSubmit(newVehicleForm.vin);
-    const comment = newVehicleForm.comment.trim();
 
     try {
       const plateLookup = await fetchVehicles({ q: plateNumber, limit: 50, offset: 0 });
@@ -258,8 +309,7 @@ export function WorkOrderIntakeScreen(): JSX.Element {
       plate_number: plateNumber,
       make_model: makeModel,
       year: year ? Number(year) : null,
-      vin,
-      comment: comment || null
+      vin
     });
 
     setWorkOrderForm((prev) => ({
@@ -277,28 +327,33 @@ export function WorkOrderIntakeScreen(): JSX.Element {
       return;
     }
 
-    const total = Number(workOrderForm.total_amount);
-    if (!Number.isFinite(total) || total <= 0) {
-      setFormError(t("work_order_intake.error.total_amount"));
-      return;
-    }
-
     setFormError(null);
     const created = await createWorkOrderMutation.mutateAsync({
       client_id: workOrderForm.client_id,
       vehicle_id: workOrderForm.vehicle_id,
       description: workOrderForm.description.trim(),
-      total_amount: total,
+      diagnosis: workOrderForm.diagnosis.trim() || null,
+      mileage: workOrderForm.mileage ? Number(workOrderForm.mileage) : null,
+      due_at: workOrderForm.due_at ? new Date(workOrderForm.due_at).toISOString() : null,
+      estimated_amount: workOrderForm.estimated_amount ? Number(workOrderForm.estimated_amount) : null,
+      intake_notes: workOrderForm.intake_notes.trim() || null,
+      attachments: photos,
       assigned_employee_id: workOrderForm.assigned_employee_id || null,
       status: "new"
     });
 
+    window.sessionStorage.removeItem("autoservice:intake-draft");
     router.push(ROUTES.workOrderDetail(created.id) as Route);
   };
 
   const isBusy = createClientMutation.isPending || createVehicleMutation.isPending || createWorkOrderMutation.isPending;
   const isVehicleStepActive = Boolean(workOrderForm.client_id);
   const isWorkOrderStepActive = Boolean(workOrderForm.vehicle_id);
+  const canSubmitWorkOrder =
+    Boolean(workOrderForm.client_id) &&
+    Boolean(workOrderForm.vehicle_id) &&
+    Boolean(workOrderForm.description.trim()) &&
+    !isBusy;
 
   return (
     <PageLayout
@@ -312,6 +367,14 @@ export function WorkOrderIntakeScreen(): JSX.Element {
       }
     >
       <form className="mx-auto w-full max-w-[960px] space-y-2 pb-14" onSubmit={(event) => void onSubmit(event)}>
+        {draftRestored ? (
+          <div className="flex items-center justify-between rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+            <span>{t("work_order_intake.draft_restored")}</span>
+            <Button type="button" size="sm" variant="ghost" onClick={() => { setWorkOrderForm(defaultWorkOrderForm()); window.sessionStorage.removeItem("autoservice:intake-draft"); setDraftRestored(false); }}>
+              {t("work_order_intake.clear_draft")}
+            </Button>
+          </div>
+        ) : null}
         <section className="space-y-1.5 border-b border-neutral-200 pb-3">
           <div className="flex flex-wrap items-center justify-between gap-1.5">
             <p className="flex items-center gap-1.5 text-sm font-semibold text-neutral-900">
@@ -342,6 +405,8 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                   searchPlaceholder={t("work_order_intake.search_client")}
                   emptyText={clientsLookupQuery.isLoading ? t("work_order_intake.loading_clients") : t("work_order_intake.no_clients")}
                   minSearchChars={2}
+                  onSearchChange={setClientSearch}
+                  serverSearch
                   minSearchText={t("work_order_intake.type_min_chars", { count: 2 })}
                   actionLabel={t("work_order_intake.create_client")}
                   onAction={() => {
@@ -393,22 +458,6 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                     onChange={(event) => setNewClientForm((prev) => ({ ...prev, email: event.target.value }))}
                   />
                 </FormField>
-                <FormField id="new-client-source" label={t("clients.form.source")}>
-                  <Input
-                    fullHeight="sm"
-                    id="new-client-source"
-                    value={newClientForm.source}
-                    onChange={(event) => setNewClientForm((prev) => ({ ...prev, source: event.target.value }))}
-                  />
-                </FormField>
-                <FormField id="new-client-comment" label={t("common.comment")}>
-                  <Input
-                    fullHeight="sm"
-                    id="new-client-comment"
-                    value={newClientForm.comment}
-                    onChange={(event) => setNewClientForm((prev) => ({ ...prev, comment: event.target.value }))}
-                  />
-                </FormField>
               </div>
               <div className="flex justify-end pt-0.5">
                 <Button type="button" size="sm" variant="secondary" loading={createClientMutation.isPending} onClick={() => void onCreateClientInline()}>
@@ -421,7 +470,6 @@ export function WorkOrderIntakeScreen(): JSX.Element {
 
         <section
           ref={vehicleSectionRef}
-          aria-disabled={!isVehicleStepActive}
           className={cn("space-y-1.5 border-b border-neutral-200 pb-3 transition-opacity", !isVehicleStepActive && "opacity-50")}
         >
           <div className="flex flex-wrap items-center justify-between gap-1.5">
@@ -505,14 +553,6 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                   />
                 </FormField>
               </div>
-              <FormField id="new-vehicle-comment" label={t("common.comment")}>
-                <Input
-                  fullHeight="sm"
-                  id="new-vehicle-comment"
-                  value={newVehicleForm.comment}
-                  onChange={(event) => setNewVehicleForm((prev) => ({ ...prev, comment: event.target.value }))}
-                />
-              </FormField>
               <div className="flex justify-end pt-0.5">
                 <Button type="button" size="sm" variant="secondary" loading={createVehicleMutation.isPending} onClick={() => void onCreateVehicleInline()}>
                   {t("work_order_intake.create_vehicle_continue")}
@@ -524,7 +564,6 @@ export function WorkOrderIntakeScreen(): JSX.Element {
 
         <section
           ref={workOrderSectionRef}
-          aria-disabled={!isWorkOrderStepActive}
           className={cn("grid grid-cols-1 gap-1.5 pb-3 transition-opacity md:grid-cols-2", !isWorkOrderStepActive && "opacity-50")}
         >
           <p className="flex items-center gap-1.5 text-sm font-semibold text-neutral-900 md:col-span-2">
@@ -548,21 +587,13 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                   <option value="">{t("work_orders.unassigned")}</option>
                   {(employeesQuery.data?.items ?? []).map((employee) => (
                     <option key={employee.employee_id} value={employee.employee_id}>
-                      {(employee.full_name?.trim() || employee.email)} ({employee.role})
+                      {(employee.full_name?.trim() || employee.email).replace(/[,\s]+$/g, "")} (
+                      {employeeRoleLabel(employee.role, t)})
                     </option>
                   ))}
                 </Select>
               </FormField>
 
-              <FormField id="total_amount" label={t("work_order_intake.total_amount_label")} required className="md:col-span-2 md:max-w-[280px]">
-                <Input
-                  fullHeight="sm"
-                  id="total_amount"
-                  value={workOrderForm.total_amount}
-                  onChange={(event) => setWorkOrderForm((prev) => ({ ...prev, total_amount: event.target.value }))}
-                  placeholder="0.00"
-                />
-              </FormField>
               <FormField id="description" label={t("work_order_intake.description_label")} required className="md:col-span-2">
                 <Textarea
                   className="min-h-20"
@@ -570,6 +601,54 @@ export function WorkOrderIntakeScreen(): JSX.Element {
                   value={workOrderForm.description}
                   onChange={(event) => setWorkOrderForm((prev) => ({ ...prev, description: event.target.value }))}
                 />
+              </FormField>
+              <FormField id="diagnosis" label={t("work_order_intake.diagnosis")} className="md:col-span-2">
+                <Textarea id="diagnosis" value={workOrderForm.diagnosis} onChange={(event) => setWorkOrderForm((prev) => ({ ...prev, diagnosis: event.target.value }))} />
+              </FormField>
+              <FormField id="mileage" label={t("work_order_intake.mileage")}>
+                <Input id="mileage" type="number" min="0" inputMode="numeric" value={workOrderForm.mileage} onChange={(event) => setWorkOrderForm((prev) => ({ ...prev, mileage: event.target.value }))} />
+              </FormField>
+              <FormField id="due_at" label={t("work_order_intake.due_at")}>
+                <Input id="due_at" type="datetime-local" value={workOrderForm.due_at} onChange={(event) => setWorkOrderForm((prev) => ({ ...prev, due_at: event.target.value }))} />
+              </FormField>
+              <FormField id="estimated_amount" label={t("work_order_intake.estimated_amount")}>
+                <Input id="estimated_amount" type="number" min="0" step="0.01" inputMode="decimal" value={workOrderForm.estimated_amount} onChange={(event) => setWorkOrderForm((prev) => ({ ...prev, estimated_amount: event.target.value }))} />
+              </FormField>
+              <FormField id="intake_notes" label={t("work_order_intake.intake_notes")}>
+                <Textarea id="intake_notes" value={workOrderForm.intake_notes} onChange={(event) => setWorkOrderForm((prev) => ({ ...prev, intake_notes: event.target.value }))} />
+              </FormField>
+              <FormField id="intake-photos" label={t("work_order_intake.photos")} className="md:col-span-2">
+                <Input
+                  id="intake-photos"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  multiple
+                  onChange={(event) => {
+                    const files = Array.from(event.target.files ?? []);
+                    if (photos.length + files.length > 5 || files.some((file) => file.size > 500_000)) {
+                      setFormError(t("work_order_intake.photos_error"));
+                      event.target.value = "";
+                      return;
+                    }
+                    void Promise.all(files.map((file) => new Promise<IntakePhoto>((resolve, reject) => {
+                      const reader = new FileReader();
+                      reader.onload = () => resolve({ name: file.name, content_type: file.type as IntakePhoto["content_type"], data_url: String(reader.result) });
+                      reader.onerror = reject;
+                      reader.readAsDataURL(file);
+                    }))).then((items) => { setPhotos((current) => [...current, ...items]); setFormError(null); }).catch(() => setFormError(t("work_order_intake.photos_error")));
+                  }}
+                />
+                {photos.length ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {photos.map((photo, index) => (
+                      <div key={`${photo.name}-${index}`} className="relative h-20 w-20 overflow-hidden rounded-md border border-neutral-200">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={photo.data_url} alt={photo.name} className="h-full w-full object-cover" />
+                        <button type="button" aria-label={t("common.remove")} className="absolute right-1 top-1 rounded bg-neutral-900/70 px-1 text-xs text-white" onClick={() => setPhotos((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </FormField>
             </>
           )}
@@ -582,12 +661,18 @@ export function WorkOrderIntakeScreen(): JSX.Element {
         {createVehicleMutation.error ? <p className="text-xs text-error">{createVehicleMutation.error.message}</p> : null}
         {createWorkOrderMutation.error ? <p className="text-xs text-error">{createWorkOrderMutation.error.message}</p> : null}
 
-        <div className="sticky bottom-0 z-10 -mx-1 mt-1 bg-gradient-to-t from-neutral-100/95 via-neutral-100/92 to-transparent px-1 pt-3">
+        <div className="mt-3 pb-[max(8px,env(safe-area-inset-bottom))]">
           <div className="flex flex-wrap items-center justify-end gap-2 border-t border-neutral-200 py-2">
             <Button type="button" size="sm" variant="secondary" onClick={() => router.push(ROUTES.workOrders as Route)}>
               {t("common.cancel")}
             </Button>
-            <Button type="submit" size="sm" variant="primary" loading={createWorkOrderMutation.isPending} disabled={isBusy}>
+            <Button
+              type="submit"
+              size="sm"
+              variant="primary"
+              loading={createWorkOrderMutation.isPending}
+              disabled={!canSubmitWorkOrder}
+            >
               {t("work_order_intake.submit")}
             </Button>
           </div>

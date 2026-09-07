@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { useMemo } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ROUTES } from "@/core/config/routes";
 import { Badge, Button, Card, FormActions, FormField, Input, Textarea } from "@/design-system/primitives";
@@ -41,17 +41,20 @@ export function VehicleDetailScreen({ vehicleId }: { vehicleId: string }): JSX.E
     enabled: Boolean(vehicleQuery.data?.client_id)
   });
 
-  const historyQuery = useQuery({
-    queryKey: mvpQueryKeys.vehicleHistory(vehicleId, 100, 0),
-    queryFn: () => fetchVehicleHistory(vehicleId, { limit: 100, offset: 0 })
+  const historyQuery = useInfiniteQuery({
+    queryKey: [...mvpQueryKeys.vehicleHistory(vehicleId, 50, 0), "pages"],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => fetchVehicleHistory(vehicleId, { limit: 50, offset: pageParam }),
+    getNextPageParam: (lastPage, pages) => lastPage.length === 50 ? pages.length * 50 : undefined
   });
+  const history = useMemo(() => historyQuery.data?.pages.flat() ?? [], [historyQuery.data]);
 
   const updateMutation = useMutation({
     mutationFn: (payload: Parameters<typeof updateVehicle>[1]) => updateVehicle(vehicleId, payload),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.vehicle(vehicleId) });
       void queryClient.invalidateQueries({ queryKey: ["vehicles"] });
-      void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.vehicleHistory(vehicleId, 100, 0) });
+      void queryClient.invalidateQueries({ queryKey: mvpQueryKeys.vehicleHistory(vehicleId, 50, 0) });
     }
   });
 
@@ -60,16 +63,16 @@ export function VehicleDetailScreen({ vehicleId }: { vehicleId: string }): JSX.E
     if (currentOwnerQuery.data) {
       map.set(currentOwnerQuery.data.id, currentOwnerQuery.data.name);
     }
-    for (const item of historyQuery.data ?? []) {
+    for (const item of history) {
       if (item.client_id && item.client_name) {
         map.set(item.client_id, item.client_name);
       }
     }
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
-  }, [currentOwnerQuery.data, historyQuery.data]);
+  }, [currentOwnerQuery.data, history]);
 
   return (
-    <PageLayout title={t("vehicle_detail.title")} subtitle={vehicleId}>
+    <PageLayout title={t("vehicle_detail.title")}>
       <StateBoundary loading={vehicleQuery.isLoading} error={vehicleQuery.error?.message}>
         {vehicleQuery.data ? (
           <>
@@ -77,7 +80,10 @@ export function VehicleDetailScreen({ vehicleId }: { vehicleId: string }): JSX.E
               title={`${vehicleQuery.data.plate_number} | ${vehicleQuery.data.make_model}`}
               description={`${t("work_orders.created")} ${new Date(vehicleQuery.data.created_at).toLocaleString()}`}
               actions={
-                <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1">
+                  <Link href={`${ROUTES.workOrderNew}?client_id=${vehicleQuery.data.client_id}&vehicle_id=${vehicleId}` as Route}>
+                    <Button>{t("work_orders.new")}</Button>
+                  </Link>
                   {currentOwnerQuery.data ? (
                     <Link href={ROUTES.clientDetail(currentOwnerQuery.data.id) as Route}>
                       <Button variant="secondary">{t("vehicle_detail.current_owner")}</Button>
@@ -106,7 +112,7 @@ export function VehicleDetailScreen({ vehicleId }: { vehicleId: string }): JSX.E
                       <span className="text-neutral-500">{t("common.vin")}:</span> {vehicleQuery.data.vin ?? t("common.not_set")}
                     </p>
                     <p>
-                      <span className="text-neutral-500">{t("client_detail.visits")}:</span> {historyQuery.data?.length ?? 0}
+                      <span className="text-neutral-500">{t("client_detail.visits")}:</span> {vehicleQuery.data.work_order_count ?? 0}
                     </p>
                   </div>
                   <div className="space-y-1">
@@ -173,9 +179,9 @@ export function VehicleDetailScreen({ vehicleId }: { vehicleId: string }): JSX.E
                 <p className="text-sm text-neutral-600">{t("vehicle_detail.loading_history")}</p>
               ) : historyQuery.error ? (
                 <p className="text-sm text-error">{historyQuery.error.message}</p>
-              ) : historyQuery.data?.length ? (
+              ) : history.length ? (
                 <div className="space-y-1">
-                  {historyQuery.data.map((item) => (
+                  {history.map((item) => (
                     <Card key={item.id} className="border-neutral-200 p-2">
                       <div className="flex flex-wrap items-start justify-between gap-1">
                         <div>
@@ -185,6 +191,9 @@ export function VehicleDetailScreen({ vehicleId }: { vehicleId: string }): JSX.E
                           <p className="text-xs text-neutral-600">{t("client_detail.visit_date")}: {new Date(item.visit_at).toLocaleString()}</p>
                           <p className="text-xs text-neutral-600">{t("vehicle_detail.owner_at_visit")}: {item.client_name ?? t("common.unknown")}</p>
                           <p className="text-xs text-neutral-600">{t("client_detail.work_summary")}: {item.work_summary ?? t("client_detail.no_line_items")}</p>
+                          {item.mileage != null ? <p className="text-xs text-neutral-600">{t("work_order_intake.mileage")}: {item.mileage.toLocaleString()}</p> : null}
+                          {item.diagnosis ? <p className="text-xs text-neutral-600">{t("work_order_intake.diagnosis")}: {item.diagnosis}</p> : null}
+                          {item.due_at ? <p className="text-xs font-medium text-warning">{t("work_order_intake.due_at")}: {new Date(item.due_at).toLocaleString()}</p> : null}
                         </div>
                         <div className="min-w-[180px] text-right">
                           <OrderStatusBadge status={item.status} />
@@ -192,13 +201,11 @@ export function VehicleDetailScreen({ vehicleId }: { vehicleId: string }): JSX.E
                           <p className="text-xs text-neutral-600">
                             {t("work_orders.kpi.paid")}: {formatMoney(item.paid_amount)} | {t("work_orders.kpi.remaining")}: {formatMoney(item.remaining_amount)}
                           </p>
-                          {item.client_id ? (
-                            <Link href={ROUTES.clientDetail(item.client_id) as Route}>
-                              <Button variant="secondary" size="sm" className="mt-1">
-                                {t("common.open")}
-                              </Button>
-                            </Link>
-                          ) : null}
+                          <Link href={ROUTES.workOrderDetail(item.id) as Route}>
+                            <Button variant="secondary" size="sm" className="mt-1">
+                              {t("common.open")}
+                            </Button>
+                          </Link>
                         </div>
                       </div>
                     </Card>
@@ -207,6 +214,7 @@ export function VehicleDetailScreen({ vehicleId }: { vehicleId: string }): JSX.E
               ) : (
                 <p className="text-sm text-neutral-600">{t("vehicle_detail.history.empty")}</p>
               )}
+              {historyQuery.hasNextPage ? <Button variant="secondary" loading={historyQuery.isFetchingNextPage} onClick={() => void historyQuery.fetchNextPage()}>{t("common.load_more")}</Button> : null}
             </Section>
           </>
         ) : null}

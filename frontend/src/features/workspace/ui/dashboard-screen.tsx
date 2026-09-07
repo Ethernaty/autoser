@@ -2,596 +2,689 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { AlertTriangle, CheckCircle2, CircleDollarSign, Plus, UserPlus2 } from "lucide-react";
 
 import { ROUTES } from "@/core/config/routes";
 import { cn } from "@/core/lib/utils";
-import { Badge, Button, Card } from "@/design-system/primitives";
 import { PageLayout, StateBoundary } from "@/design-system/patterns";
+import { Badge, Button, Card, Select } from "@/design-system/primitives";
 import {
   fetchDashboardAnalytics,
+  fetchDashboardSummary,
+  fetchEmployees,
   fetchWorkOrders,
   mvpQueryKeys
 } from "@/features/workspace/api/mvp-api";
 import type {
-  AnalyticsMonthlyLoadItem,
-  AnalyticsRevenueItem,
-  AnalyticsWeekdayLoadItem,
-  WorkOrderRecord,
+  DashboardActivity,
+  DashboardAssigneeScope,
+  DashboardStatusScope,
+  WorkOrderPaymentState,
   WorkOrderStatus
 } from "@/features/workspace/types/mvp-types";
 import { useI18n } from "@/shared/i18n";
 
+type PeriodScope = 3 | 6 | 12;
+
+const statusOptions: Array<{ value: DashboardStatusScope; labelKey: string }> = [
+  { value: "all", labelKey: "work_orders.view.all" },
+  { value: "active", labelKey: "dashboard.scope.active" },
+  { value: "new", labelKey: "dashboard.status.new" },
+  { value: "in_progress", labelKey: "dashboard.status.in_progress" },
+  { value: "completed_unpaid", labelKey: "dashboard.status.completed_unpaid_short" },
+  { value: "completed_paid", labelKey: "dashboard.status.completed_paid_short" },
+  { value: "cancelled", labelKey: "dashboard.status.cancelled" }
+];
+
+const periodOptions: Array<{ value: PeriodScope; labelKey: string }> = [
+  { value: 3, labelKey: "dashboard.period.3m" },
+  { value: 6, labelKey: "dashboard.period.6m" },
+  { value: 12, labelKey: "dashboard.period.12m" }
+];
+
+const STATUS_TONE: Record<WorkOrderStatus, "neutral" | "warning" | "success" | "error"> = {
+  new: "neutral",
+  in_progress: "warning",
+  completed_unpaid: "warning",
+  completed_paid: "success",
+  cancelled: "error"
+};
+
+function parseAmount(value: string | number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function formatCurrency(value: string | number): string {
-  const normalized = Number(value);
-  if (!Number.isFinite(normalized)) {
-    return String(value);
-  }
-
-  return normalized.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return String(value);
+  return parsed.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function compactPeriod(period: string): string {
-  const date = new Date(`${period}-01T00:00:00Z`);
-  if (Number.isNaN(date.getTime())) {
-    return period;
-  }
-
-  return date.toLocaleDateString(undefined, {
-    month: "short"
-  });
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
 }
 
-function statusTone(status: WorkOrderStatus): "neutral" | "warning" | "success" | "error" {
-  if (status === "in_progress" || status === "completed_unpaid") {
-    return "warning";
-  }
-  if (status === "completed_paid") {
-    return "success";
-  }
-  if (status === "cancelled") {
-    return "error";
-  }
-  return "neutral";
+function formatMonthLabel(period: string, locale: "ru" | "en"): string {
+  const date = new Date(`${period}-01T00:00:00`);
+  if (Number.isNaN(date.getTime())) return period;
+  return date.toLocaleDateString(locale === "ru" ? "ru-RU" : "en-US", { month: "short" });
 }
 
-function KpiCard({
+function paymentTone(state: WorkOrderPaymentState): "success" | "warning" | "error" {
+  if (state === "paid") return "success";
+  if (state === "partial") return "warning";
+  return "error";
+}
+
+function paymentLabel(state: WorkOrderPaymentState, t: (key: string) => string): string {
+  if (state === "paid") return t("work_orders.payment_state.paid");
+  if (state === "partial") return t("work_orders.payment_state.partial");
+  return t("work_orders.payment_state.unpaid");
+}
+
+function resolveActivityTypeKey(entity: string): string {
+  if (entity.includes("order")) return "dashboard.activity.type.order";
+  if (entity.includes("payment")) return "dashboard.activity.type.payment";
+  if (entity.includes("line")) return "dashboard.activity.type.line";
+  if (entity.includes("client")) return "dashboard.activity.type.client";
+  if (entity.includes("vehicle")) return "dashboard.activity.type.vehicle";
+  return "dashboard.activity.type.system";
+}
+
+function resolveActivityTitleKey(activity: DashboardActivity): string {
+  const action = activity.action.toLowerCase();
+  const entity = activity.entity.toLowerCase();
+
+  if (entity.includes("payment") || action.includes("payment")) return "dashboard.activity.event.payment_recorded";
+  if (action.includes("assign")) return "dashboard.activity.event.order_assignee_changed";
+  if (action.includes("status")) return "dashboard.activity.event.order_status_changed";
+  if (action.includes("close")) return "dashboard.activity.event.order_closed";
+  if (action.includes("cancel")) return "dashboard.activity.event.order_cancelled";
+  if (entity.includes("line")) return "dashboard.activity.event.line_items_changed";
+  if (entity.includes("client") && action.includes("create")) return "dashboard.activity.event.client_created";
+  if (entity.includes("vehicle") && action.includes("create")) return "dashboard.activity.event.vehicle_created";
+  if (entity.includes("order") && action.includes("create")) return "dashboard.activity.event.order_created";
+  if (entity.includes("order")) return "dashboard.activity.event.order_updated";
+  return "dashboard.activity.event.generic";
+}
+
+function resolveActivityReference(activity: DashboardActivity, t: (key: string, vars?: Record<string, string>) => string): string {
+  const id = activity.entity_id ? activity.entity_id.slice(0, 6) : "";
+  const entity = activity.entity.toLowerCase();
+
+  if (entity.includes("order")) return activity.entity_id ? t("dashboard.activity.ref.order", { id }) : t("dashboard.activity.ref.order_generic");
+  if (entity.includes("client")) return activity.entity_id ? t("dashboard.activity.ref.client", { id }) : t("dashboard.activity.ref.client_generic");
+  if (entity.includes("vehicle")) return activity.entity_id ? t("dashboard.activity.ref.vehicle", { id }) : t("dashboard.activity.ref.vehicle_generic");
+  if (entity.includes("line")) return t("dashboard.activity.ref.line");
+  if (entity.includes("payment")) return t("dashboard.activity.ref.payment");
+  return t("dashboard.activity.ref.order_generic");
+}
+
+function KpiTile({
   title,
   value,
-  context,
   tone = "neutral"
 }: {
   title: string;
   value: string | number;
-  context: string;
   tone?: "neutral" | "warning" | "success" | "primary";
 }): JSX.Element {
   return (
-    <Card className="relative overflow-hidden border-neutral-200 p-3">
-      <div
+    <div className="rounded-xl border border-neutral-200 bg-neutral-0 px-3 py-2 shadow-sm">
+      <p className="truncate text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-500">{title}</p>
+      <p
         className={cn(
-          "absolute inset-x-0 top-0 h-0.5",
-          tone === "warning"
-            ? "bg-warning"
-            : tone === "success"
-              ? "bg-success"
+          "mt-1 text-xl font-semibold leading-6 tabular-nums",
+          tone === "success"
+            ? "text-success"
+            : tone === "warning"
+              ? "text-warning"
               : tone === "primary"
-                ? "bg-primary"
-                : "bg-neutral-300"
+                ? "text-primary"
+                : "text-neutral-900"
         )}
-      />
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">{title}</p>
-      <p className="mt-1 text-[28px] font-semibold leading-8 tabular-nums text-neutral-900">{value}</p>
-      <p className="mt-1 text-xs text-neutral-600">{context}</p>
-    </Card>
-  );
-}
-
-function MetricChartCard({
-  title,
-  subtitle,
-  children
-}: {
-  title: string;
-  subtitle: string;
-  children: React.ReactNode;
-}): JSX.Element {
-  return (
-    <Card className="border-neutral-200 p-3">
-      <div>
-        <p className="text-sm font-semibold text-neutral-900">{title}</p>
-        <p className="mt-0.5 text-xs text-neutral-600">{subtitle}</p>
-      </div>
-      {children}
-    </Card>
-  );
-}
-
-function MonthlyColumnChart({
-  rows,
-  colorClass,
-  valueLabel,
-  emptyLabel
-}: {
-  rows: Array<{ period: string; value: number }>;
-  colorClass: string;
-  valueLabel: string;
-  emptyLabel: string;
-}): JSX.Element {
-  if (!rows.length) {
-    return <p className="mt-3 text-sm text-neutral-600">{emptyLabel}</p>;
-  }
-
-  const maxValue = Math.max(...rows.map((row) => row.value), 1);
-
-  return (
-    <div className="mt-3 space-y-2">
-      <div
-        className="grid h-36 items-end gap-1.5"
-        style={{ gridTemplateColumns: `repeat(${rows.length}, minmax(0, 1fr))` }}
       >
-        {rows.map((row) => {
-          const percent = Math.max(8, Math.round((row.value / maxValue) * 100));
-          return (
-            <div key={row.period} className="group flex h-full flex-col justify-end gap-1">
-              <div className="relative h-28 rounded-sm bg-neutral-100">
-                <div
-                  className={cn("absolute inset-x-0 bottom-0 rounded-sm", colorClass)}
-                  style={{ height: `${percent}%` }}
-                />
-              </div>
-              <p className="text-center text-[11px] font-medium text-neutral-600">{compactPeriod(row.period)}</p>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="flex items-center justify-between border-t border-neutral-100 pt-2 text-xs text-neutral-600">
-        <span>{valueLabel}</span>
-        <span className="font-semibold text-neutral-800">Max: {maxValue}</span>
-      </div>
+        {value}
+      </p>
     </div>
   );
 }
 
-function RevenueLineChart({
+function MonthTrendChart({
   rows,
-  emptyLabel,
-  createdLabel,
-  paidLabel
+  locale,
+  emptyLabel
 }: {
-  rows: Array<{ period: string; paidAmount: number; orderAmount: number }>;
+  rows: Array<{ period: string; value: number }>;
+  locale: "ru" | "en";
   emptyLabel: string;
-  createdLabel: string;
-  paidLabel: string;
 }): JSX.Element {
   if (!rows.length) {
-    return <p className="mt-3 text-sm text-neutral-600">{emptyLabel}</p>;
+    return <p className="rounded-lg border border-dashed border-neutral-300 bg-neutral-50 px-3 py-2 text-xs text-neutral-600">{emptyLabel}</p>;
   }
 
-  const values = rows.flatMap((row) => [row.paidAmount, row.orderAmount]);
-  const maxValue = Math.max(...values, 1);
-  const chartWidth = 100;
-  const chartHeight = 44;
-
-  const toPoints = (series: number[]): string => {
-    if (!series.length) {
-      return "";
-    }
-
-    return series
-      .map((value, index) => {
-        const x = series.length === 1 ? chartWidth / 2 : (index / (series.length - 1)) * chartWidth;
-        const y = chartHeight - (value / maxValue) * chartHeight;
-        return `${x},${Math.max(1, Math.min(chartHeight - 1, y))}`;
-      })
-      .join(" ");
-  };
-
-  const paidSeries = rows.map((row) => row.paidAmount);
-  const orderSeries = rows.map((row) => row.orderAmount);
+  const maxValue = Math.max(...rows.map((row) => row.value), 1);
+  const width = 100;
+  const height = 24;
+  const labelsStep = rows.length > 8 ? 2 : 1;
+  const points = rows
+    .map((row, index) => {
+      const x = rows.length === 1 ? width / 2 : (index / (rows.length - 1)) * width;
+      const y = height - (row.value / maxValue) * height;
+      return `${x},${Math.max(1, Math.min(height - 1, y))}`;
+    })
+    .join(" ");
 
   return (
-    <div className="mt-3 space-y-2">
-      <div className="rounded-md border border-neutral-100 bg-neutral-50 p-2">
-        <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="h-36 w-full" preserveAspectRatio="none" aria-hidden>
+    <div className="space-y-2">
+      <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-2">
+        <svg viewBox={`0 0 ${width} ${height}`} className="h-24 w-full" preserveAspectRatio="none" aria-hidden>
           <polyline
             fill="none"
             stroke="hsl(var(--primary))"
             strokeWidth="2"
             strokeLinejoin="round"
             strokeLinecap="round"
-            points={toPoints(orderSeries)}
-          />
-          <polyline
-            fill="none"
-            stroke="hsl(var(--success))"
-            strokeWidth="2"
-            strokeLinejoin="round"
-            strokeLinecap="round"
-            points={toPoints(paidSeries)}
+            points={points}
           />
         </svg>
       </div>
-
-      <div className="grid grid-cols-2 gap-2 text-xs">
-        <div className="rounded-md border border-neutral-200 bg-neutral-0 p-2">
-          <p className="font-medium text-neutral-600">{createdLabel}</p>
-          <p className="mt-1 font-semibold tabular-nums text-primary">{formatCurrency(orderSeries[orderSeries.length - 1] ?? 0)}</p>
-        </div>
-        <div className="rounded-md border border-neutral-200 bg-neutral-0 p-2">
-          <p className="font-medium text-neutral-600">{paidLabel}</p>
-          <p className="mt-1 font-semibold tabular-nums text-success">{formatCurrency(paidSeries[paidSeries.length - 1] ?? 0)}</p>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between border-t border-neutral-100 pt-2 text-[11px] text-neutral-600">
-        <span>{compactPeriod(rows[0]?.period ?? "")}</span>
-        <div className="flex items-center gap-3">
-          <span className="inline-flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-primary" />
-            {createdLabel}
+      <div className="grid grid-cols-6 gap-1 text-[10px] text-neutral-500 sm:grid-cols-12">
+        {rows.map((row, index) => (
+          <span key={row.period} className="text-center">
+            {index % labelsStep === 0 || index === rows.length - 1 ? formatMonthLabel(row.period, locale) : ""}
           </span>
-          <span className="inline-flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-success" />
-            {paidLabel}
-          </span>
-        </div>
-        <span>{compactPeriod(rows[rows.length - 1]?.period ?? "")}</span>
+        ))}
       </div>
     </div>
   );
 }
 
-function WeekdayLoadCard({
-  title,
-  rows,
-  locale,
-  emptyLabel
-}: {
-  title: string;
-  rows: AnalyticsWeekdayLoadItem[];
-  locale: "ru" | "en";
-  emptyLabel: string;
-}): JSX.Element {
-  const weekdayLabels: Record<string, string> =
-    locale === "ru"
-      ? {
-          mon: "Пн",
-          tue: "Вт",
-          wed: "Ср",
-          thu: "Чт",
-          fri: "Пт",
-          sat: "Сб",
-          sun: "Вс"
-        }
-      : {
-          mon: "Mon",
-          tue: "Tue",
-          wed: "Wed",
-          thu: "Thu",
-          fri: "Fri",
-          sat: "Sat",
-          sun: "Sun"
-        };
-
-  if (!rows.length) {
-    return (
-      <Card className="border-neutral-200 p-3">
-        <p className="text-sm font-semibold text-neutral-900">{title}</p>
-        <p className="mt-3 text-sm text-neutral-600">{emptyLabel}</p>
-      </Card>
-    );
-  }
-
-  const maxValue = Math.max(...rows.map((row) => row.orders_count), 1);
-
-  return (
-    <Card className="border-neutral-200 p-3">
-      <p className="text-sm font-semibold text-neutral-900">{title}</p>
-      <div className="mt-3 grid grid-cols-7 gap-1.5">
-        {rows.map((row) => {
-          const ratio = row.orders_count / maxValue;
-          const toneClass = ratio >= 0.75 ? "bg-primary/30" : ratio >= 0.4 ? "bg-primary/20" : ratio > 0 ? "bg-primary/10" : "bg-neutral-100";
-
-          return (
-            <div key={row.weekday} className="space-y-1 text-center">
-              <div className={cn("rounded-md border border-neutral-200 px-1 py-1.5", toneClass)}>
-                <p className="text-sm font-semibold tabular-nums text-neutral-900">{row.orders_count}</p>
-              </div>
-              <p className="text-[11px] text-neutral-600">{weekdayLabels[row.weekday] ?? row.weekday}</p>
-            </div>
-          );
-        })}
-      </div>
-    </Card>
-  );
-}
-
-function RankedListCard({
-  title,
-  rows,
-  emptyLabel,
-  labelFormatter
-}: {
-  title: string;
-  rows: Array<{ label: string; value: number }>;
-  emptyLabel: string;
-  labelFormatter?: (label: string) => string;
-}): JSX.Element {
-  return (
-    <Card className="border-neutral-200 p-3">
-      <p className="text-sm font-semibold text-neutral-900">{title}</p>
-      {rows.length ? (
-        <ul className="mt-3 space-y-1.5">
-          {rows.map((row, index) => (
-            <li key={`${row.label}-${index}`} className="flex items-center justify-between rounded-md border border-neutral-100 px-2 py-1.5">
-              <p className="truncate text-sm text-neutral-700">
-                <span className="mr-1 text-neutral-500">{index + 1}.</span>
-                {labelFormatter ? labelFormatter(row.label) : row.label}
-              </p>
-              <span className="rounded-sm bg-neutral-100 px-1.5 py-0.5 text-xs font-semibold tabular-nums text-neutral-800">{row.value}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="mt-3 text-sm text-neutral-600">{emptyLabel}</p>
-      )}
-    </Card>
-  );
+function activityDotClass(typeKey: string): string {
+  if (typeKey.includes("payment")) return "bg-success";
+  if (typeKey.includes("line")) return "bg-warning";
+  if (typeKey.includes("system")) return "bg-neutral-400";
+  if (typeKey.includes("client") || typeKey.includes("vehicle")) return "bg-primary";
+  return "bg-primary";
 }
 
 export function DashboardScreen(): JSX.Element {
   const { t, locale } = useI18n();
+  const [periodScope, setPeriodScope] = useState<PeriodScope>(6);
+  const [statusScope, setStatusScope] = useState<DashboardStatusScope>("all");
+  const [assigneeScope, setAssigneeScope] = useState<DashboardAssigneeScope>("all");
 
   const analyticsQuery = useQuery({
-    queryKey: mvpQueryKeys.dashboardAnalytics(12),
-    queryFn: () => fetchDashboardAnalytics(12)
+    queryKey: mvpQueryKeys.dashboardAnalytics(periodScope, statusScope, assigneeScope),
+    queryFn: () => fetchDashboardAnalytics({ months: periodScope, status_scope: statusScope, assignee_scope: assigneeScope })
+  });
+
+  const summaryQuery = useQuery({
+    queryKey: mvpQueryKeys.dashboardSummary,
+    queryFn: () => fetchDashboardSummary(8)
+  });
+
+  const employeesQuery = useQuery({
+    queryKey: mvpQueryKeys.employees("", "", 100, 0),
+    queryFn: () => fetchEmployees({ q: "", limit: 100, offset: 0 })
   });
 
   const workOrdersQuery = useQuery({
-    queryKey: mvpQueryKeys.workOrders("", 20, 0),
-    queryFn: () => fetchWorkOrders({ q: "", limit: 20, offset: 0 })
+    queryKey: mvpQueryKeys.workOrders("", 1, 0, statusScope, assigneeScope),
+    queryFn: () =>
+      fetchWorkOrders({
+        q: "",
+        limit: 1,
+        offset: 0,
+        status_scope: statusScope,
+        assignee_scope: assigneeScope
+      })
   });
 
-  const activeWorkOrders = useMemo<WorkOrderRecord[]>(() => {
-    const rows = workOrdersQuery.data?.items ?? [];
-    return rows.filter((row) => row.status === "new" || row.status === "in_progress").slice(0, 8);
-  }, [workOrdersQuery.data?.items]);
+  const queueScope = statusScope === "all" ? "active" : statusScope;
+  const queueQuery = useQuery({
+    queryKey: mvpQueryKeys.workOrders("", 8, 0, queueScope, assigneeScope),
+    queryFn: () => fetchWorkOrders({ limit: 8, offset: 0, status_scope: queueScope, assignee_scope: assigneeScope })
+  });
 
-  const monthlyOrdersRows = useMemo(() => {
-    return (analyticsQuery.data?.seasonality_monthly ?? []).slice(-6).map((item: AnalyticsMonthlyLoadItem) => ({
-      period: item.period,
-      value: item.orders_count
-    }));
-  }, [analyticsQuery.data?.seasonality_monthly]);
+  const assigneeOptions = useMemo(() => {
+    const employees = employeesQuery.data?.items ?? [];
+    return [
+      { value: "all", label: t("work_orders.view.all") },
+      { value: "unassigned", label: t("work_orders.unassigned") },
+      ...employees.map((employee) => ({
+        value: employee.employee_id,
+        label: employee.full_name?.trim() || employee.email || employee.employee_id.slice(0, 6)
+      }))
+    ];
+  }, [employeesQuery.data?.items, t]);
 
-  const monthlyClientsRows = useMemo(() => {
-    return (analyticsQuery.data?.seasonality_monthly ?? []).slice(-6).map((item: AnalyticsMonthlyLoadItem) => ({
-      period: item.period,
-      value: item.clients_count
-    }));
-  }, [analyticsQuery.data?.seasonality_monthly]);
+  const employeeNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const employee of employeesQuery.data?.items ?? []) {
+      map.set(employee.employee_id, employee.full_name?.trim() || employee.email || employee.employee_id.slice(0, 6));
+    }
+    return map;
+  }, [employeesQuery.data?.items]);
 
-  const revenueRows = useMemo(() => {
-    return (analyticsQuery.data?.revenue_monthly ?? []).slice(-6).map((item: AnalyticsRevenueItem) => ({
-      period: item.period,
-      paidAmount: Number(item.paid_amount) || 0,
-      orderAmount: Number(item.order_amount) || 0
-    }));
-  }, [analyticsQuery.data?.revenue_monthly]);
+  const queueRows = queueQuery.data?.items ?? [];
+  const registrySummary = workOrdersQuery.data?.summary;
+  const queueOutstandingAmount = parseAmount(registrySummary?.outstanding_amount ?? 0);
+  const unassignedCount = registrySummary?.unassigned_count ?? 0;
+  const completedAndPaidCount = registrySummary?.completed_paid_count ?? 0;
 
-  const sourceRows = useMemo(
+  const monthlyRows = useMemo(
     () =>
-      (analyticsQuery.data?.client_sources ?? []).map((item) => ({
-        label: item.source,
-        value: item.clients_count
+      (analyticsQuery.data?.seasonality_monthly ?? []).slice(-periodScope).map((item) => ({
+        period: item.period,
+        value: item.orders_count
       })),
-    [analyticsQuery.data?.client_sources]
+    [analyticsQuery.data?.seasonality_monthly, periodScope]
   );
 
-  const serviceRows = useMemo(
-    () =>
-      (analyticsQuery.data?.popular_services ?? []).map((item) => ({
-        label: item.name,
-        value: item.usage_count
-      })),
-    [analyticsQuery.data?.popular_services]
-  );
+  const collectionRate = useMemo(() => {
+    const paid = Math.max(0, parseAmount(registrySummary?.paid_amount ?? 0) - parseAmount(registrySummary?.cancelled_paid_amount ?? 0));
+    const unpaid = queueOutstandingAmount;
+    const total = paid + unpaid;
+    if (total <= 0) return 0;
+    return Math.round((paid / total) * 100);
+  }, [registrySummary, queueOutstandingAmount]);
+
+  const activityRows = useMemo(() => {
+    return (summaryQuery.data?.recent_activity ?? []).slice(0, 5).map((activity) => ({
+      id: activity.id,
+      typeKey: resolveActivityTypeKey(activity.entity),
+      titleKey: resolveActivityTitleKey(activity),
+      reference: resolveActivityReference(activity, t),
+      absoluteTime: formatDateTime(activity.created_at)
+    }));
+  }, [summaryQuery.data?.recent_activity, t]);
+
+  const topSources = (analyticsQuery.data?.client_sources ?? []).slice(0, 3);
+  const topServices = (analyticsQuery.data?.popular_services ?? []).slice(0, 3);
+  const problematicOrders = analyticsQuery.data?.problematic_orders ?? [];
+
+  const filtersDirty = periodScope !== 6 || statusScope !== "all" || assigneeScope !== "all";
 
   return (
-    <PageLayout title={t("dashboard.title")} subtitle={t("dashboard.subtitle")}>
-      <Card className="border-neutral-200 p-3 sm:p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-neutral-900">{t("dashboard.quick_actions.title")}</p>
-            <p className="text-xs text-neutral-600">{t("dashboard.quick_actions.description")}</p>
-          </div>
-          <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-cols-2 sm:gap-1.5 lg:grid-cols-3">
-            <Link href={ROUTES.workOrderNew as Route} className="w-full sm:w-auto">
-              <Button
-                variant="primary"
-                size="sm"
-                className="h-11 w-full justify-start px-3 text-[14px] sm:h-8 sm:w-auto sm:justify-center sm:px-2.5 sm:text-[13px]"
-              >
-                {t("dashboard.quick_actions.create_work_order")}
-              </Button>
-            </Link>
-            <Link href={ROUTES.clients as Route} className="w-full sm:w-auto">
-              <Button
-                variant="secondary"
-                size="sm"
-                className="h-11 w-full justify-start px-3 text-[14px] sm:h-8 sm:w-auto sm:justify-center sm:px-2.5 sm:text-[13px]"
-              >
-                {t("dashboard.quick_actions.add_client")}
-              </Button>
-            </Link>
-            <Link href={ROUTES.vehicles as Route} className="w-full sm:w-auto">
-              <Button
-                variant="secondary"
-                size="sm"
-                className="h-11 w-full justify-start px-3 text-[14px] sm:h-8 sm:w-auto sm:justify-center sm:px-2.5 sm:text-[13px]"
-              >
-                {t("dashboard.quick_actions.add_vehicle")}
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </Card>
-
-      <StateBoundary loading={analyticsQuery.isLoading} error={analyticsQuery.error?.message}>
-        {analyticsQuery.data ? (
-          <section className="space-y-2">
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
-              <KpiCard
-                title={t("dashboard.kpi.clients_total")}
-                value={analyticsQuery.data.clients_total}
-                context={t("dashboard.analytics.client_seasonality")}
-                tone="neutral"
-              />
-              <KpiCard
-                title={t("dashboard.kpi.orders_total")}
-                value={analyticsQuery.data.work_orders_total}
-                context={t("dashboard.analytics.orders_seasonality")}
-                tone="primary"
-              />
-              <KpiCard
-                title={t("dashboard.kpi.open_queue")}
-                value={analyticsQuery.data.open_work_orders_count}
-                context={t("dashboard.kpi.needs_attention")}
-                tone="warning"
-              />
-              <KpiCard
-                title={t("dashboard.kpi.paid_30d")}
-                value={formatCurrency(analyticsQuery.data.paid_amount_30d)}
-                context={t("dashboard.kpi.revenue_context")}
-                tone="success"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 gap-2 xl:grid-cols-3">
-              <MetricChartCard title={t("dashboard.analytics.orders_seasonality")} subtitle={t("dashboard.analytics.orders_line")}>
-                <MonthlyColumnChart
-                  rows={monthlyOrdersRows}
-                  colorClass="bg-primary"
-                  valueLabel={t("dashboard.analytics.orders_line")}
-                  emptyLabel={t("dashboard.operational.empty")}
-                />
-              </MetricChartCard>
-
-              <MetricChartCard title={t("dashboard.analytics.client_seasonality")} subtitle={t("dashboard.analytics.clients_line")}>
-                <MonthlyColumnChart
-                  rows={monthlyClientsRows}
-                  colorClass="bg-neutral-700"
-                  valueLabel={t("dashboard.analytics.clients_line")}
-                  emptyLabel={t("dashboard.operational.empty")}
-                />
-              </MetricChartCard>
-
-              <MetricChartCard title={t("dashboard.analytics.revenue_dynamics")} subtitle={t("dashboard.analytics.paid_line") + " / " + t("dashboard.analytics.created_line")}>
-                <RevenueLineChart
-                  rows={revenueRows}
-                  emptyLabel={t("dashboard.operational.empty")}
-                  createdLabel={t("dashboard.analytics.created_line")}
-                  paidLabel={t("dashboard.analytics.paid_line")}
-                />
-              </MetricChartCard>
-            </div>
-
-            <div className="grid grid-cols-1 gap-2 xl:grid-cols-3">
-              <WeekdayLoadCard
-                title={t("dashboard.operational.weekday_load")}
-                rows={analyticsQuery.data.load_by_weekday as AnalyticsWeekdayLoadItem[]}
-                locale={locale}
-                emptyLabel={t("dashboard.operational.empty")}
-              />
-
-              <RankedListCard
-                title={t("dashboard.operational.source_breakdown")}
-                rows={sourceRows}
-                emptyLabel={t("dashboard.operational.empty")}
-                labelFormatter={(label) => (label === "unknown" ? t("dashboard.operational.unknown_source") : label)}
-              />
-
-              <RankedListCard
-                title={t("dashboard.operational.popular_services")}
-                rows={serviceRows}
-                emptyLabel={t("dashboard.operational.popular_services_empty")}
-              />
-            </div>
-          </section>
-        ) : null}
-      </StateBoundary>
-
-      <Card className="border-neutral-200 p-3 sm:p-4">
-        <div className="mb-3 flex flex-col items-start gap-2 border-b border-neutral-100 pb-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-neutral-900">{t("dashboard.active_orders.title")}</p>
-            <p className="text-xs text-neutral-600">{t("dashboard.active_orders.description")}</p>
-          </div>
-          <Link href={ROUTES.workOrders as Route} className="w-full sm:w-auto">
-            <Button size="sm" variant="secondary" className="h-10 w-full sm:h-8 sm:w-auto">
-              {t("dashboard.active_orders.all")}
+    <PageLayout
+      title={t("dashboard.title")}
+      subtitle={t("dashboard.subtitle")}
+      actions={
+        <Link href={ROUTES.workOrderNew as Route}>
+          <Button size="sm" variant="primary" className="h-9 rounded-lg px-3 text-xs">
+            <Plus className="h-3.5 w-3.5" />
+            {t("dashboard.quick_actions.create_work_order")}
+          </Button>
+        </Link>
+      }
+      className="space-y-3"
+    >
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="mr-1 text-[11px] font-semibold text-neutral-500">{t("dashboard.quick_actions.title")}</p>
+          <Link href={ROUTES.clients as Route}>
+            <Button size="sm" variant="secondary" className="h-8 rounded-lg px-2.5 text-xs">
+              <UserPlus2 className="h-3.5 w-3.5" />
+              {t("dashboard.quick_actions.add_client")}
+            </Button>
+          </Link>
+          <Link href={ROUTES.vehicles as Route}>
+            <Button size="sm" variant="secondary" className="h-8 rounded-lg px-2.5 text-xs">
+              <Plus className="h-3.5 w-3.5" />
+              {t("dashboard.quick_actions.add_vehicle")}
             </Button>
           </Link>
         </div>
 
-        {workOrdersQuery.isLoading ? (
-          <p className="text-sm text-neutral-600">{t("common.loading")}</p>
-        ) : workOrdersQuery.error ? (
-          <p className="text-sm text-error">{workOrdersQuery.error.message}</p>
-        ) : activeWorkOrders.length ? (
-          <div className="space-y-1.5">
-            {activeWorkOrders.map((order) => (
-              <Link
-                key={order.id}
-                href={ROUTES.workOrderDetail(order.id) as Route}
-                className="block rounded-md border border-neutral-200 bg-neutral-50 p-2.5 transition-colors hover:border-neutral-300 hover:bg-neutral-0"
-              >
-                <div className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-neutral-900">
-                      {order.description || `Work order #${order.id.slice(0, 8)}`}
-                    </p>
-                    <p className="mt-0.5 truncate text-xs text-neutral-600">
-                      {(order.client_name?.trim() || t("dashboard.client_fallback"))}
-                      {" | "}
-                      {order.vehicle_id
-                        ? order.vehicle_make_model?.trim() || t("dashboard.vehicle_fallback")
-                        : t("dashboard.no_vehicle_linked")}
-                    </p>
-                  </div>
-
-                  <Badge tone={statusTone(order.status)}>{t(`dashboard.status.${order.status}`)}</Badge>
-
-                  <div className="text-left lg:text-right">
-                    <p className="text-[11px] uppercase tracking-wide text-neutral-500">{t("dashboard.total_amount")}</p>
-                    <p className="text-sm font-semibold tabular-nums text-neutral-900">{formatCurrency(order.total_amount)}</p>
-                  </div>
-                </div>
-              </Link>
-            ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <label className="text-[11px] font-semibold text-neutral-500">{t("dashboard.filters.period")}</label>
+            <Select
+              value={String(periodScope)}
+              onChange={(event) => setPeriodScope(Number(event.target.value) as PeriodScope)}
+              size="sm"
+              portal={false}
+              className="h-8 min-w-[112px] rounded-lg bg-neutral-50 text-xs"
+            >
+              {periodOptions.map((option) => (
+                <option key={option.value} value={String(option.value)}>
+                  {t(option.labelKey)}
+                </option>
+              ))}
+            </Select>
           </div>
-        ) : (
-          <div className="rounded-md border border-dashed border-neutral-300 bg-neutral-50 p-3">
-            <p className="text-sm font-medium text-neutral-800">{t("dashboard.active_orders.empty_title")}</p>
-            <p className="mt-1 text-sm text-neutral-600">{t("dashboard.active_orders.empty_description")}</p>
-            <div className="mt-2">
-              <Link href={ROUTES.workOrderNew as Route} className="w-full sm:w-auto">
-                <Button size="sm" variant="primary" className="h-10 w-full sm:h-8 sm:w-auto">
-                  {t("dashboard.active_orders.empty_action")}
-                </Button>
-              </Link>
+
+          <div className="flex items-center gap-1.5">
+            <label className="text-[11px] font-semibold text-neutral-500">{t("dashboard.filters.status")}</label>
+            <Select
+              value={statusScope}
+              onChange={(event) => setStatusScope(event.target.value as DashboardStatusScope)}
+              size="sm"
+              portal={false}
+              className="h-8 min-w-[128px] rounded-lg bg-neutral-50 text-xs"
+            >
+              {statusOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {t(option.labelKey)}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <label className="text-[11px] font-semibold text-neutral-500">{t("dashboard.filters.executor")}</label>
+            <Select
+              value={assigneeScope}
+              onChange={(event) => setAssigneeScope(event.target.value as DashboardAssigneeScope)}
+              size="sm"
+              portal={false}
+              className="h-8 min-w-[150px] rounded-lg bg-neutral-50 text-xs"
+            >
+              {assigneeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          {filtersDirty ? (
+            <button
+              type="button"
+              className="h-8 rounded-lg px-2 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-800 sm:ml-auto"
+              onClick={() => {
+                setPeriodScope(6);
+                setStatusScope("all");
+                setAssigneeScope("all");
+              }}
+            >
+              {t("dashboard.filters.clear")}
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <StateBoundary
+        loading={analyticsQuery.isLoading || workOrdersQuery.isLoading || queueQuery.isLoading}
+        error={analyticsQuery.error?.message ?? workOrdersQuery.error?.message ?? queueQuery.error?.message}
+      >
+        {analyticsQuery.data ? (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-3 2xl:grid-cols-6">
+              <KpiTile title={t("dashboard.kpi.open_queue")} value={analyticsQuery.data.open_work_orders_count} tone="warning" />
+              <KpiTile title={t("dashboard.kpi.unpaid_orders")} value={analyticsQuery.data.unpaid_orders_count} tone="warning" />
+              <KpiTile title={t("dashboard.kpi.paid_30d")} value={formatCurrency(analyticsQuery.data.paid_amount_30d)} tone="success" />
+              <KpiTile title={t("dashboard.kpi.orders_total")} value={analyticsQuery.data.work_orders_total} />
+              <KpiTile title={t("dashboard.kpi.clients_total")} value={analyticsQuery.data.clients_total} />
+              <KpiTile title={t("dashboard.kpi.revenue_total")} value={formatCurrency(summaryQuery.data?.revenue_total ?? 0)} tone="primary" />
+            </div>
+
+            <div className="grid min-w-0 gap-3 xl:grid-cols-12 xl:items-start">
+              <Card className="min-w-0 self-start border-neutral-200 bg-neutral-0 p-3 shadow-sm xl:col-span-8">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-semibold text-neutral-900">{t("dashboard.active_orders.title")}</h3>
+                    <p className="text-[11px] text-neutral-600">{t("dashboard.active_orders.description")}</p>
+                  </div>
+                  <Link href={ROUTES.workOrders as Route}>
+                    <Button size="sm" variant="secondary" className="h-7 rounded-lg px-2 text-[11px]">
+                      {t("dashboard.active_orders.all")}
+                    </Button>
+                  </Link>
+                </div>
+
+                {queueRows.length ? (
+                  <>
+                    <div className="hidden overflow-hidden rounded-lg border border-neutral-200 md:block">
+                      <div className="max-h-[272px] overflow-auto">
+                        <table className="w-full min-w-0 text-xs">
+                          <thead className="sticky top-0 bg-neutral-50 text-[11px] uppercase tracking-wide text-neutral-500">
+                            <tr>
+                              <th className="px-2 py-1.5 text-left font-semibold">{t("shell.nav.work_orders")}</th>
+                              <th className="px-2 py-1.5 text-left font-semibold">{t("shell.nav.clients")} / {t("shell.nav.vehicles")}</th>
+                              <th className="px-2 py-1.5 text-left font-semibold">{t("dashboard.filters.status")}</th>
+                              <th className="px-2 py-1.5 text-left font-semibold">{t("work_orders.filter.label.payment")}</th>
+                              <th className="px-2 py-1.5 text-right font-semibold">{t("dashboard.total_amount")}</th>
+                              <th className="px-2 py-1.5 text-right font-semibold">{t("common.actions")}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {queueRows.map((row) => {
+                              const assigneeId = row.assigned_employee_ids[0] ?? row.assigned_employee_id ?? "";
+                              const assigneeLabel = assigneeId ? employeeNameMap.get(assigneeId) || assigneeId.slice(0, 6) : t("work_orders.unassigned");
+
+                              return (
+                                <tr key={row.id} className="border-t border-neutral-100">
+                                  <td className="px-2 py-1.5 align-top">
+                                    <p className="font-semibold text-neutral-900">#{row.order_number}</p>
+                                    <p className="line-clamp-1 text-[11px] text-neutral-600">{row.description || t("dashboard.activity.event.order_created")}</p>
+                                    <p className="mt-0.5 text-[10px] text-neutral-500">{formatDateTime(row.updated_at)}</p>
+                                  </td>
+                                  <td className="px-2 py-1.5 align-top">
+                                    <p className="font-medium text-neutral-900">{row.client_name || t("dashboard.client_fallback")}</p>
+                                    <p className="line-clamp-1 text-[11px] text-neutral-600">{row.vehicle_make_model || t("dashboard.no_vehicle_linked")}</p>
+                                    <p className="mt-0.5 text-[10px] text-neutral-500">{assigneeLabel}</p>
+                                  </td>
+                                  <td className="px-2 py-1.5 align-top">
+                                    <Badge tone={STATUS_TONE[row.status]} className="text-[10px]">
+                                      {t(`dashboard.status.${row.status}`)}
+                                    </Badge>
+                                  </td>
+                                  <td className="px-2 py-1.5 align-top">
+                                    <Badge tone={paymentTone(row.payment_state)} className="text-[10px]">
+                                      {paymentLabel(row.payment_state, t)}
+                                    </Badge>
+                                    <p className="mt-0.5 text-[10px] text-neutral-600">
+                                      {t("work_orders.kpi.paid")}: <span className="font-medium">{formatCurrency(row.paid_amount)}</span>
+                                    </p>
+                                  </td>
+                                  <td className="px-2 py-1.5 text-right align-top font-semibold tabular-nums text-neutral-900">
+                                    {formatCurrency(row.total_amount)}
+                                  </td>
+                                  <td className="px-2 py-1.5 text-right align-top">
+                                    <Link href={ROUTES.workOrderDetail(row.id) as Route}>
+                                      <Button size="sm" variant="secondary" className="h-7 rounded-md px-2 text-[11px]">
+                                        {t("common.open")}
+                                      </Button>
+                                    </Link>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 md:hidden">
+                      {queueRows.slice(0, 5).map((row) => (
+                        <Card key={row.id} className="border-neutral-200 bg-neutral-50 p-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-neutral-900">#{row.order_number}</p>
+                              <p className="line-clamp-1 text-[11px] text-neutral-600">{row.description || t("dashboard.activity.event.order_created")}</p>
+                            </div>
+                            <p className="text-xs font-semibold tabular-nums text-neutral-900">{formatCurrency(row.total_amount)}</p>
+                          </div>
+                          <div className="mt-1.5 flex items-center justify-between gap-2">
+                            <Badge tone={STATUS_TONE[row.status]} className="text-[10px]">
+                              {t(`dashboard.status.${row.status}`)}
+                            </Badge>
+                            <Link href={ROUTES.workOrderDetail(row.id) as Route}>
+                              <Button size="sm" variant="secondary" className="h-7 rounded-md px-2 text-[11px]">
+                                {t("common.open")}
+                              </Button>
+                            </Link>
+                          </div>
+                        </Card>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-neutral-300 bg-neutral-50 p-3">
+                    <p className="text-sm font-semibold text-neutral-900">{t("dashboard.active_orders.empty_title")}</p>
+                    <p className="mt-1 text-xs text-neutral-600">{t("dashboard.active_orders.empty_description")}</p>
+                    <div className="mt-2">
+                      <Link href={ROUTES.workOrderNew as Route}>
+                        <Button size="sm" variant="primary" className="h-8 rounded-lg px-2.5 text-xs">
+                          <Plus className="h-3.5 w-3.5" />
+                          {t("dashboard.active_orders.empty_action")}
+                        </Button>
+                      </Link>
+                    </div>
+                  </div>
+                )}
+              </Card>
+
+              <div className="grid min-w-0 self-start grid-cols-1 gap-3 xl:col-span-4">
+                <Card className="border-none bg-[linear-gradient(165deg,#6865EE_0%,#5854DA_52%,#4542BC_100%)] p-2.5 text-white shadow-md dark:bg-[linear-gradient(165deg,#3D3B96_0%,#343275_52%,#272557_100%)]">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold">{t("dashboard.finance.title")}</h3>
+                      <p className="text-[11px] text-white/80">{t("dashboard.finance.subtitle")}</p>
+                    </div>
+                    <CircleDollarSign className="h-4 w-4 text-white/85" />
+                  </div>
+
+                  <div className="mt-3 space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between rounded-lg bg-white/12 px-2 py-1.5">
+                      <span className="text-white/80">{t("work_orders.kpi.paid")}</span>
+                      <span className="font-semibold tabular-nums">{formatCurrency(Math.max(0, parseAmount(registrySummary?.paid_amount ?? 0) - parseAmount(registrySummary?.cancelled_paid_amount ?? 0)))}</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg bg-white/12 px-2 py-1.5">
+                      <span className="text-white/80">{t("dashboard.finance.unpaid_amount")}</span>
+                      <span className="font-semibold tabular-nums">{formatCurrency(queueOutstandingAmount)}</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg bg-white/12 px-2 py-1.5">
+                      <span className="text-white/80">{t("dashboard.finance.completed_paid_count")}</span>
+                      <span className="font-semibold tabular-nums">{completedAndPaidCount}</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/20">
+                    <div className="h-full rounded-full bg-white" style={{ width: `${collectionRate}%` }} />
+                  </div>
+                  <p className="mt-1 text-[10px] text-white/80">{t("dashboard.finance.collection_rate_short", { value: String(collectionRate) })}</p>
+                </Card>
+
+                <Card className="border-neutral-200 bg-neutral-0 p-2.5 shadow-sm">
+                  <div className="mb-2 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-neutral-900">{t("dashboard.operational.title")}</h3>
+                    {problematicOrders.length ? <AlertTriangle className="h-4 w-4 text-warning" /> : <CheckCircle2 className="h-4 w-4 text-success" />}
+                  </div>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between rounded-lg bg-neutral-50 px-2 py-1.5">
+                      <span className="text-neutral-600">{t("dashboard.operational.problem_orders")}</span>
+                      <span className="font-semibold text-neutral-900">{problematicOrders.length}</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg bg-neutral-50 px-2 py-1.5">
+                      <span className="text-neutral-600">{t("work_orders.unassigned")}</span>
+                      <span className="font-semibold text-neutral-900">{unassignedCount}</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg bg-neutral-50 px-2 py-1.5">
+                      <span className="text-neutral-600">{t("dashboard.finance.unpaid_amount")}</span>
+                      <span className="font-semibold text-neutral-900 tabular-nums">{formatCurrency(queueOutstandingAmount)}</span>
+                    </div>
+                  </div>
+                  {!problematicOrders.length ? <p className="mt-2 text-xs text-neutral-600">{t("dashboard.attention.empty")}</p> : null}
+                </Card>
+              </div>
+            </div>
+
+            <div className="grid min-w-0 grid-cols-1 gap-3 xl:grid-cols-12">
+              <Card className="min-w-0 border-neutral-200 bg-neutral-0 p-2.5 shadow-sm xl:col-span-7">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-semibold text-neutral-900">{t("dashboard.analytics.orders_seasonality")}</h3>
+                    <p className="text-[11px] text-neutral-600">{t("dashboard.chart.caption")}</p>
+                  </div>
+                  <Badge tone="primary" className="text-[10px]">
+                    {t("dashboard.chart.period_badge", { months: String(periodScope) })}
+                  </Badge>
+                </div>
+                <MonthTrendChart rows={monthlyRows} locale={locale} emptyLabel={t("dashboard.analytics.empty")} />
+              </Card>
+
+              <Card className="min-w-0 border-neutral-200 bg-neutral-0 p-2.5 shadow-sm xl:col-span-5">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-neutral-900">{t("dashboard.activity.title")}</h3>
+                  <Link href={ROUTES.workOrders as Route} className="text-xs font-medium text-primary hover:underline">
+                    {t("dashboard.active_orders.all")}
+                  </Link>
+                </div>
+
+                {activityRows.length ? (
+                  <ul className="space-y-1.5">
+                    {activityRows.slice(0, 4).map((row) => (
+                      <li key={row.id} className="flex items-start gap-2 rounded-lg border border-neutral-100 bg-neutral-50 px-2 py-1.5">
+                        <span className={cn("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full", activityDotClass(row.typeKey))} aria-hidden />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <p className="line-clamp-1 text-xs font-semibold text-neutral-900">{t(row.titleKey)}</p>
+                            <Badge tone="neutral" className="text-[10px]">
+                              {t(row.typeKey)}
+                            </Badge>
+                          </div>
+                          <p className="line-clamp-1 text-[11px] text-neutral-600">{row.reference}</p>
+                        </div>
+                        <span className="shrink-0 text-[10px] text-neutral-500">{row.absoluteTime}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-neutral-300 bg-neutral-50 px-3 py-2 text-xs text-neutral-600">
+                    {t("dashboard.activity.empty")}
+                  </div>
+                )}
+              </Card>
+            </div>
+
+            <div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-2">
+              <Card className="min-w-0 border-neutral-200 bg-neutral-0 p-3 shadow-sm">
+                <h3 className="text-sm font-semibold text-neutral-900">{t("dashboard.operational.source_breakdown")}</h3>
+                <ul className="mt-2 space-y-1.5 text-xs text-neutral-700">
+                  {topSources.length ? (
+                    topSources.map((source) => (
+                      <li key={source.source} className="flex items-center justify-between rounded-lg bg-neutral-50 px-2 py-1.5">
+                        <span className="truncate">{source.source === "unknown" ? t("dashboard.operational.unknown_source") : source.source}</span>
+                        <span className="font-semibold">{source.clients_count}</span>
+                      </li>
+                    ))
+                  ) : (
+                    <li className="rounded-lg border border-dashed border-neutral-300 bg-neutral-50 px-2 py-2 text-neutral-600">
+                      {t("dashboard.operational.empty")}
+                    </li>
+                  )}
+                </ul>
+              </Card>
+
+              <Card className="min-w-0 border-neutral-200 bg-neutral-0 p-3 shadow-sm">
+                <h3 className="text-sm font-semibold text-neutral-900">{t("dashboard.operational.popular_services")}</h3>
+                <ul className="mt-2 space-y-1.5 text-xs text-neutral-700">
+                  {topServices.length ? (
+                    topServices.map((service) => (
+                      <li key={service.name} className="flex items-center justify-between rounded-lg bg-neutral-50 px-2 py-1.5">
+                        <span className="truncate">{service.name}</span>
+                        <span className="font-semibold">{service.usage_count}</span>
+                      </li>
+                    ))
+                  ) : (
+                    <li className="rounded-lg border border-dashed border-neutral-300 bg-neutral-50 px-2 py-2 text-neutral-600">
+                      {t("dashboard.operational.popular_services_empty")}
+                    </li>
+                  )}
+                </ul>
+              </Card>
             </div>
           </div>
-        )}
-      </Card>
+        ) : null}
+      </StateBoundary>
     </PageLayout>
   );
 }
-
-

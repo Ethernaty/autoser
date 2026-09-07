@@ -25,13 +25,14 @@ from app.services.audit_decorator import audit
 from app.services.audit_log_service import AuditLogService
 from app.services.base_service import BaseService
 from app.services.idempotency_service import IdempotencyDecision, IdempotencyService
+from app.services.client_directory import ClientDirectoryMixin
 
 
 _CACHE_MISS = object()
 _NAMESPACE_TTL_SECONDS = 60 * 60 * 24 * 30
 
 
-class ClientService(BaseService):
+class ClientService(ClientDirectoryMixin, BaseService):
     """Business service for tenant-scoped client operations."""
 
     def __init__(

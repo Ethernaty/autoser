@@ -30,14 +30,25 @@ class VehicleResponse(BaseModel):
     id: UUID
     tenant_id: UUID
     client_id: UUID
+    client_name: str | None = None
+    client_phone: str | None = None
     plate_number: str
     make_model: str
     year: int | None
     vin: str | None
     comment: str | None
+    work_order_count: int = 0
+    active_work_order_count: int = 0
+    last_activity_at: datetime | None = None
     archived_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class VehicleListSummary(BaseModel):
+    with_active_orders: int = 0
+    without_orders: int = 0
+    recent_added: int = 0
 
 
 class VehicleListResponse(BaseModel):
@@ -45,3 +56,4 @@ class VehicleListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+    summary: VehicleListSummary

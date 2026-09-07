@@ -28,3 +28,7 @@ export async function me(): Promise<AuthSession> {
   });
   return response.data;
 }
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await apiClient.post("/auth/change-password", { currentPassword, newPassword });
+}

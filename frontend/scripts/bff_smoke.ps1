@@ -142,6 +142,7 @@ $employee = (Invoke-Json -Method "POST" -Url "$frontend/api/workspace/employees"
     Accept = "application/json"
     "Idempotency-Key" = ([Guid]::NewGuid().ToString("N"))
 } -Body @{
+    full_name = "BFF Manager"
     email = "manager+$suffix@example.com"
     password = "ManagerPass!$suffix"
     role = "manager"
@@ -194,9 +195,9 @@ Assert-True ($remainingAmount -eq $expectedRemaining) "remaining_amount is incon
 
 Write-Step "Changing status and closing"
 $null = (Invoke-Json -Method "POST" -Url "$frontend/api/workspace/work-orders/$($workOrder.id)/status" -Headers $writeHeaders -Body @{ status = "in_progress" } -Session $session).Content | ConvertFrom-Json
-$null = (Invoke-Json -Method "POST" -Url "$frontend/api/workspace/work-orders/$($workOrder.id)/status" -Headers $writeHeaders -Body @{ status = "completed" } -Session $session).Content | ConvertFrom-Json
+$null = (Invoke-Json -Method "POST" -Url "$frontend/api/workspace/work-orders/$($workOrder.id)/status" -Headers $writeHeaders -Body @{ status = "completed_unpaid" } -Session $session).Content | ConvertFrom-Json
 $closed = (Invoke-Json -Method "POST" -Url "$frontend/api/workspace/work-orders/$($workOrder.id)/close" -Headers $writeHeaders -Session $session).Content | ConvertFrom-Json
-Assert-True ([string]$closed.status -eq "completed") "Work-order close failed"
+Assert-True ([string]$closed.status -eq "completed_unpaid") "Work-order close failed"
 
 Write-Step "Checking dashboard summary"
 $dashboard = (Invoke-Json -Method "GET" -Url "$frontend/api/workspace/dashboard/summary?recent_limit=5" -Session $session).Content | ConvertFrom-Json

@@ -23,6 +23,7 @@ class WorkspaceSettings(BaseModel, TenantScopedMixin):
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC")
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default="USD")
     working_hours_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    logo_data_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

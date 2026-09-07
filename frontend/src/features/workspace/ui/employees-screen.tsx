@@ -9,7 +9,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 
 import { DataTable } from "@/design-system/primitives/data-table/data-table";
 import type { DataTableColumn } from "@/design-system/primitives/data-table/data-table.types";
-import { Badge, Button, FormActions, FormField, Input, Modal, Select } from "@/design-system/primitives";
+import { Badge, Button, FormActions, FormField, Input, MobilePagination, Modal, Select } from "@/design-system/primitives";
 import { PageLayout } from "@/design-system/patterns";
 import {
   createEmployee,
@@ -29,6 +29,8 @@ type EmployeeForm = {
   password: string;
   password_confirm: string;
   role: string;
+  job_title: string;
+  can_accept_payments: boolean;
 };
 
 function defaultEmployeeForm(): EmployeeForm {
@@ -37,7 +39,9 @@ function defaultEmployeeForm(): EmployeeForm {
     email: "",
     password: "",
     password_confirm: "",
-    role: "employee"
+    role: "employee",
+    job_title: "",
+    can_accept_payments: false
   };
 }
 
@@ -280,22 +284,25 @@ export function EmployeesScreen(): JSX.Element {
     setModalOpen(true);
   };
 
-  const onOpenEdit = (employee: EmployeeRecord): void => {
+  const onOpenEdit = useCallback((employee: EmployeeRecord): void => {
     setEditingEmployee(employee);
     setForm({
       full_name: employee.full_name ?? "",
       email: employee.email,
       password: "",
       password_confirm: "",
-      role: employee.role
+      role: employee.role,
+      job_title: employee.job_title ?? "",
+      can_accept_payments: employee.can_accept_payments
     });
     setShowPassword(false);
     setShowPasswordConfirm(false);
     setError(null);
     setModalOpen(true);
-  };
+  }, []);
 
   const rows = employeesQuery.data?.items ?? [];
+  const totalEmployees = employeesQuery.data?.total ?? 0;
   const isStatusMutationPending = statusMutation.isPending;
   const columns = useMemo<DataTableColumn<EmployeeRecord>[]>(
     () => [
@@ -330,7 +337,12 @@ export function EmployeesScreen(): JSX.Element {
         id: "role",
         header: t("employees.table.role"),
         minWidth: 120,
-        cell: (row) => <Badge tone={roleTone(row.role)}>{t(`employees.role.${row.role}`)}</Badge>
+        cell: (row) => (
+          <div>
+            {row.job_title ? <p className="mb-1 text-xs text-neutral-600">{row.job_title}</p> : null}
+            <Badge tone={roleTone(row.role)}>{t(`employees.role.${row.role}`)}</Badge>
+          </div>
+        )
       },
       {
         id: "status",
@@ -394,6 +406,8 @@ export function EmployeesScreen(): JSX.Element {
           full_name: form.full_name.trim(),
           email: normalizedEmail || undefined,
           role: form.role,
+          job_title: form.job_title.trim() || null,
+          can_accept_payments: form.can_accept_payments,
           password: normalizedPassword ? normalizedPassword : undefined
         }
       });
@@ -402,7 +416,9 @@ export function EmployeesScreen(): JSX.Element {
         full_name: form.full_name.trim(),
         email: normalizedEmail || null,
         password: normalizedPassword,
-        role: form.role
+        role: form.role,
+        job_title: form.job_title.trim() || null,
+        can_accept_payments: form.can_accept_payments
       });
     }
 
@@ -425,36 +441,125 @@ export function EmployeesScreen(): JSX.Element {
       <div className="space-y-1.5">
         <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("employees.search_placeholder")} />
 
-        <DataTable
-          columns={columns}
-          rows={rows}
-          getRowId={(row) => row.employee_id}
-          onRowClick={onOpenEdit}
-          loading={employeesQuery.isLoading}
-          error={employeesQuery.error?.message}
-          onRetry={() => void employeesQuery.refetch()}
-          emptyTitle={t("employees.empty.title")}
-          emptyDescription={t("employees.empty.description")}
-          emptyAction={
-            <Button variant="primary" onClick={onOpenCreate}>
-              {t("employees.add")}
-            </Button>
-          }
-          tableClassName="min-w-full"
-          pagination={
-            (employeesQuery.data?.total ?? 0) > 0
-              ? {
-                  page,
-                  pageSize: PAGE_SIZE,
-                  total: employeesQuery.data?.total ?? 0,
-                  onPageChange: (nextPage) => {
-                    setPage(nextPage);
-                    updateUrlState({ q, page: nextPage });
+        <div className="space-y-1.5 md:hidden">
+          {employeesQuery.isLoading ? (
+            Array.from({ length: 4 }).map((_, index) => (
+              <div key={`employee-skeleton-${index}`} className="h-[102px] rounded-md border border-neutral-200 bg-neutral-0 p-2.5">
+                <div className="h-3 w-3/5 rounded bg-neutral-100" />
+                <div className="mt-2 h-2.5 w-4/5 rounded bg-neutral-100" />
+              </div>
+            ))
+          ) : employeesQuery.error ? (
+            <div className="rounded-md border border-error/30 bg-error/5 p-2.5">
+              <p className="text-sm text-error">{employeesQuery.error.message}</p>
+              <Button className="mt-2" size="sm" variant="secondary" onClick={() => void employeesQuery.refetch()}>
+                {t("datatable.retry")}
+              </Button>
+            </div>
+          ) : rows.length ? (
+            rows.map((employee) => {
+              const displayName = formatEmployeeName(employee.full_name, employee.email) || t("employees.default_name");
+              return (
+                <article
+                  key={employee.employee_id}
+                  className="w-full rounded-md border border-neutral-200 bg-neutral-0 p-2.5 transition-colors hover:border-neutral-300 hover:bg-neutral-50"
+                >
+                  <button
+                    type="button"
+                    onClick={() => onOpenEdit(employee)}
+                    className="w-full text-left"
+                  >
+                    <p className="truncate text-sm font-semibold text-neutral-900">{displayName}</p>
+                    <p className="mt-1 truncate text-xs text-neutral-600">{employee.email}</p>
+                    {employee.job_title ? <p className="mt-1 truncate text-xs text-neutral-600">{employee.job_title}</p> : null}
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <Badge tone={roleTone(employee.role)}>{t(`employees.role.${employee.role}`)}</Badge>
+                      {employee.is_active ? (
+                        <Badge tone="success">{t("employees.status.active")}</Badge>
+                      ) : (
+                        <Badge tone="warning">{t("employees.status.inactive")}</Badge>
+                      )}
+                    </div>
+                  </button>
+                  <div className="mt-2 flex gap-1.5">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => onOpenEdit(employee)}
+                    >
+                      {t("common.edit")}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      disabled={isStatusMutationPending}
+                      onClick={() => {
+                        statusMutation.mutate({ employeeId: employee.employee_id, isActive: !employee.is_active });
+                      }}
+                    >
+                      {employee.is_active ? t("employees.deactivate") : t("employees.activate")}
+                    </Button>
+                  </div>
+                </article>
+              );
+            })
+          ) : (
+            <div className="rounded-md border border-neutral-200 bg-neutral-0 p-3 text-center">
+              <p className="text-sm font-semibold text-neutral-900">{t("employees.empty.title")}</p>
+              <p className="mt-1 text-xs text-neutral-600">{t("employees.empty.description")}</p>
+              <Button className="mt-2" variant="primary" onClick={onOpenCreate}>
+                {t("employees.add")}
+              </Button>
+            </div>
+          )}
+          <MobilePagination
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={totalEmployees}
+            onPageChange={(nextPage) => {
+              setPage(nextPage);
+              updateUrlState({ q, page: nextPage });
+            }}
+            label="{page}/{total}"
+            prevLabel={t("datatable.pagination.prev")}
+            nextLabel={t("datatable.pagination.next")}
+          />
+        </div>
+
+        <div className="hidden md:block">
+          <DataTable
+            columns={columns}
+            rows={rows}
+            getRowId={(row) => row.employee_id}
+            onRowClick={onOpenEdit}
+            loading={employeesQuery.isLoading}
+            error={employeesQuery.error?.message}
+            onRetry={() => void employeesQuery.refetch()}
+            emptyTitle={t("employees.empty.title")}
+            emptyDescription={t("employees.empty.description")}
+            emptyAction={
+              <Button variant="primary" onClick={onOpenCreate}>
+                {t("employees.add")}
+              </Button>
+            }
+            tableClassName="min-w-full"
+            pagination={
+              totalEmployees > 0
+                ? {
+                    page,
+                    pageSize: PAGE_SIZE,
+                    total: totalEmployees,
+                    onPageChange: (nextPage) => {
+                      setPage(nextPage);
+                      updateUrlState({ q, page: nextPage });
+                    }
                   }
-                }
-              : undefined
-          }
-        />
+                : undefined
+            }
+          />
+        </div>
       </div>
 
       <Modal
@@ -490,7 +595,10 @@ export function EmployeesScreen(): JSX.Element {
               onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
             />
           </FormField>
-          <FormField id="employee-role" label={t("employees.form.position")} required>
+          <FormField id="employee-job-title" label={t("employees.form.position")}>
+            <Input id="employee-job-title" value={form.job_title} placeholder={t("employees.form.position_placeholder")} onChange={(event) => setForm((prev) => ({ ...prev, job_title: event.target.value }))} />
+          </FormField>
+          <FormField id="employee-role" label={t("employees.form.access_role")} required>
             <Select id="employee-role" value={form.role} onChange={(event) => setForm((prev) => ({ ...prev, role: event.target.value }))}>
               <option value="owner">{t("employees.role.owner")}</option>
               <option value="admin">{t("employees.role.admin")}</option>
@@ -498,6 +606,10 @@ export function EmployeesScreen(): JSX.Element {
               <option value="employee">{t("employees.role.employee")}</option>
             </Select>
           </FormField>
+          <label className="flex items-center gap-2 text-sm text-neutral-700">
+            <input type="checkbox" checked={form.can_accept_payments} onChange={(event) => setForm((prev) => ({ ...prev, can_accept_payments: event.target.checked }))} />
+            {t("employees.form.can_accept_payments")}
+          </label>
           <FormField id="employee-password" label={editingEmployee ? t("employees.form.password_optional") : t("common.password")} required={!editingEmployee}>
             <div className="relative">
               <Input

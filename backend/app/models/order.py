@@ -5,8 +5,9 @@ from decimal import Decimal
 from enum import Enum
 from uuid import UUID
 
-from sqlalchemy import DateTime, Enum as SQLEnum, ForeignKey, Index, Numeric, Text, func
+from sqlalchemy import DateTime, Enum as SQLEnum, ForeignKey, Index, Integer, Numeric, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import BaseModel, TenantScopedMixin
@@ -30,6 +31,7 @@ class Order(BaseModel, TenantScopedMixin):
         Index("ix_orders_tenant_assigned_user", "tenant_id", "assigned_user_id"),
         Index("ix_orders_tenant_status", "tenant_id", "status"),
         Index("ix_orders_tenant_created_at", "tenant_id", "created_at"),
+        UniqueConstraint("tenant_id", "order_number", name="uq_orders_tenant_order_number"),
     )
 
     client_id: Mapped[UUID] = mapped_column(
@@ -47,7 +49,14 @@ class Order(BaseModel, TenantScopedMixin):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    order_number: Mapped[int] = mapped_column(Integer, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
+    mileage: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    estimated_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    diagnosis: Mapped[str | None] = mapped_column(Text, nullable=True)
+    intake_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attachments: Mapped[list[dict[str, str]]] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
     total_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     status: Mapped[OrderStatus] = mapped_column(
         SQLEnum(OrderStatus, name="order_status", native_enum=False),

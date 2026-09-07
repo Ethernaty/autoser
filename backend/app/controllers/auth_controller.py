@@ -7,6 +7,7 @@ from app.controllers.schemas.auth_schemas import (
     AuthTenantResponse,
     AuthTokenResponse,
     AuthUserResponse,
+    ChangePasswordRequest,
     LoginRequest,
     LogoutRequest,
     MeResponse,
@@ -78,6 +79,15 @@ def refresh(payload: RefreshRequest, service: AuthService = Depends(get_auth_ser
 @router.post("/logout", status_code=204)
 def logout(payload: LogoutRequest, service: AuthService = Depends(get_auth_service)) -> None:
     service.revoke_refresh_token(refresh_token=payload.refresh_token)
+
+
+@router.post("/change-password", status_code=204)
+def change_password(
+    payload: ChangePasswordRequest,
+    context: UserRequestContext = Depends(get_current_user_context),
+    service: AuthService = Depends(get_auth_service),
+) -> None:
+    service.change_password(user_id=context.user_id, current_password=payload.current_password, new_password=payload.new_password)
 
 
 @router.get("/me", response_model=MeResponse)

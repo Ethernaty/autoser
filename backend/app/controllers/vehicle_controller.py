@@ -53,8 +53,15 @@ def get_client_service(
 def _order_to_response(order, paid_amount="0.00", remaining_amount=None) -> WorkOrderResponse:
     paid = paid_amount if isinstance(paid_amount, Decimal) else Decimal(str(paid_amount))
     remaining = remaining_amount if remaining_amount is not None else max(order.total_amount - paid, Decimal("0.00"))
+    if paid <= Decimal("0.00"):
+        payment_state = "unpaid"
+    elif remaining <= Decimal("0.00"):
+        payment_state = "paid"
+    else:
+        payment_state = "partial"
     return WorkOrderResponse(
         id=order.id,
+        order_number=order.order_number,
         tenant_id=order.tenant_id,
         client_id=order.client_id,
         vehicle_id=order.vehicle_id,
@@ -64,6 +71,7 @@ def _order_to_response(order, paid_amount="0.00", remaining_amount=None) -> Work
         total_amount=order.total_amount,
         price=order.total_amount,
         status=order.status,
+        payment_state=payment_state,
         paid_amount=paid,
         remaining_amount=remaining,
         created_at=order.created_at,
@@ -81,6 +89,27 @@ def _to_work_summary(order_lines: list[object]) -> str | None:
     if len(names) > 3:
         preview.append(f"+{len(names) - 3} more")
     return ", ".join(preview)
+
+
+def _enrich_vehicle_response(
+    *,
+    vehicle,
+    client_name: str | None = None,
+    client_phone: str | None = None,
+    work_order_count: int = 0,
+    active_work_order_count: int = 0,
+    last_activity_at=None,
+) -> VehicleResponse:
+    base = VehicleResponse.model_validate(vehicle)
+    return base.model_copy(
+        update={
+            "client_name": client_name,
+            "client_phone": client_phone,
+            "work_order_count": work_order_count,
+            "active_work_order_count": active_work_order_count,
+            "last_activity_at": last_activity_at,
+        }
+    )
 
 
 @router.post("/", response_model=VehicleResponse, dependencies=[Depends(RequirePermission("vehicles", "create"))])
@@ -106,13 +135,37 @@ async def list_vehicles(
     limit: int = Query(default=20, ge=1, le=MAX_LIMIT),
     offset: int = Query(default=0, ge=0),
     service: VehicleService = Depends(get_vehicle_service),
+    client_service: ClientService = Depends(get_client_service),
+    work_order_service: WorkOrderService = Depends(get_work_order_service),
 ) -> VehicleListResponse:
-    items, total = await service.list_vehicles(q=query, client_id=client_id, limit=limit, offset=offset)
+    items, total, summary = await service.list_vehicles(q=query, client_id=client_id, limit=limit, offset=offset)
+    vehicle_ids = [item.id for item in items]
+    client_ids = list({item.client_id for item in items})
+    clients = await client_service.list_clients_by_ids(ids=client_ids)
+    client_map = {item.id: item for item in clients}
+    activity_map = await work_order_service.get_vehicle_relation_stats(vehicle_ids=vehicle_ids)
+
+    response_items: list[VehicleResponse] = []
+    for item in items:
+        owner = client_map.get(item.client_id)
+        activity = activity_map.get(item.id)
+        response_items.append(
+            _enrich_vehicle_response(
+                vehicle=item,
+                client_name=owner.name if owner is not None else None,
+                client_phone=owner.phone if owner is not None else None,
+                work_order_count=activity.total_count if activity is not None else 0,
+                active_work_order_count=activity.active_count if activity is not None else 0,
+                last_activity_at=activity.last_activity_at if activity is not None else None,
+            )
+        )
+
     return VehicleListResponse(
-        items=[VehicleResponse.model_validate(item) for item in items],
+        items=response_items,
         total=total,
         limit=limit,
         offset=offset,
+        summary=summary,
     )
 
 
@@ -123,9 +176,25 @@ async def list_vehicles_by_client(client_id: UUID, service: VehicleService = Dep
 
 
 @router.get("/{vehicle_id}", response_model=VehicleResponse, dependencies=[Depends(RequirePermission("vehicles", "read"))])
-async def get_vehicle(vehicle_id: UUID, service: VehicleService = Depends(get_vehicle_service)) -> VehicleResponse:
+async def get_vehicle(
+    vehicle_id: UUID,
+    service: VehicleService = Depends(get_vehicle_service),
+    client_service: ClientService = Depends(get_client_service),
+    work_order_service: WorkOrderService = Depends(get_work_order_service),
+) -> VehicleResponse:
     vehicle = await service.get_vehicle(vehicle_id=vehicle_id)
-    return VehicleResponse.model_validate(vehicle)
+    clients = await client_service.list_clients_by_ids(ids=[vehicle.client_id])
+    owner = clients[0] if clients else None
+    activity_map = await work_order_service.get_vehicle_relation_stats(vehicle_ids=[vehicle.id])
+    activity = activity_map.get(vehicle.id)
+    return _enrich_vehicle_response(
+        vehicle=vehicle,
+        client_name=owner.name if owner is not None else None,
+        client_phone=owner.phone if owner is not None else None,
+        work_order_count=activity.total_count if activity is not None else 0,
+        active_work_order_count=activity.active_count if activity is not None else 0,
+        last_activity_at=activity.last_activity_at if activity is not None else None,
+    )
 
 
 @router.patch("/{vehicle_id}", response_model=VehicleResponse, dependencies=[Depends(RequirePermission("vehicles", "update"))])
@@ -200,6 +269,7 @@ async def vehicle_operational_history(
         response.append(
             WorkOrderHistoryItemResponse(
                 id=order.id,
+                order_number=order.order_number,
                 client_id=order.client_id,
                 client_name=client.name if client is not None else None,
                 vehicle_id=order.vehicle_id,
@@ -207,6 +277,9 @@ async def vehicle_operational_history(
                 vehicle_make_model=None,
                 description=order.description,
                 work_summary=_to_work_summary(lines_map.get(order.id, [])),
+                mileage=order.mileage,
+                due_at=order.due_at,
+                diagnosis=order.diagnosis,
                 status=order.status,
                 total_amount=order.total_amount,
                 paid_amount=paid_amount,

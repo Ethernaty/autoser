@@ -38,6 +38,8 @@ export async function PATCH(
     password?: string;
     role?: string;
     is_active?: boolean;
+    job_title?: string | null;
+    can_accept_payments?: boolean;
   };
   try {
     payload = (await request.json()) as {
@@ -46,6 +48,8 @@ export async function PATCH(
       password?: string;
       role?: string;
       is_active?: boolean;
+      job_title?: string | null;
+      can_accept_payments?: boolean;
     };
   } catch {
     return NextResponse.json({ message: "Invalid request payload" }, { status: 400 });

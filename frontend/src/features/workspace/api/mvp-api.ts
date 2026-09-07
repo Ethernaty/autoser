@@ -1,9 +1,14 @@
+import type { WorkOrderListParams, WorkOrderListResponse } from "@/features/workspace/types/mvp-types";
 import { apiClient } from "@/shared/api/client";
 import type {
   ClientCreatePayload,
   ClientRecord,
   ClientUpdatePayload,
   DashboardAnalytics,
+  DashboardAssigneeScope,
+  DashboardPreferences,
+  DashboardPreferencesUpdatePayload,
+  DashboardStatusScope,
   DashboardSummary,
   EmployeeCreatePayload,
   EmployeeRecord,
@@ -14,6 +19,7 @@ import type {
   PaymentCreatePayload,
   PaymentRecord,
   VehicleCreatePayload,
+  VehicleListResponse,
   VehicleRecord,
   WorkOrderHistoryItem,
   SupportTicketCreatePayload,
@@ -35,8 +41,10 @@ import type {
 export const mvpQueryKeys = {
   workspaceContext: ["workspace", "context"] as const,
   workspaceSettings: ["workspace", "settings"] as const,
+  dashboardPreferences: ["workspace", "dashboard", "preferences"] as const,
   dashboardSummary: ["workspace", "dashboard", "summary"] as const,
-  dashboardAnalytics: (months: number) => ["workspace", "dashboard", "analytics", months] as const,
+  dashboardAnalytics: (months: number, statusScope: DashboardStatusScope = "all", assigneeScope: DashboardAssigneeScope = "all") =>
+    ["workspace", "dashboard", "analytics", months, statusScope, assigneeScope] as const,
   clients: (q: string, limit: number, offset: number) => ["clients", q, limit, offset] as const,
   client: (clientId: string) => ["clients", "detail", clientId] as const,
   clientWorkOrders: (clientId: string, limit: number, offset: number) =>
@@ -48,7 +56,13 @@ export const mvpQueryKeys = {
   vehicleWorkOrders: (vehicleId: string) => ["vehicles", "work-orders", vehicleId] as const,
   employees: (q: string, role: string, limit: number, offset: number) => ["employees", q, role, limit, offset] as const,
   employee: (employeeId: string) => ["employees", "detail", employeeId] as const,
-  workOrders: (q: string, limit: number, offset: number) => ["work-orders", q, limit, offset] as const,
+  workOrders: (
+    q: string,
+    limit: number,
+    offset: number,
+    statusScope: DashboardStatusScope = "all",
+    assigneeScope: DashboardAssigneeScope = "all"
+  ) => ["work-orders", q, limit, offset, statusScope, assigneeScope] as const,
   workOrder: (workOrderId: string) => ["work-orders", "detail", workOrderId] as const,
   workOrderTimeline: (workOrderId: string, limit: number, offset: number) =>
     ["work-orders", workOrderId, "timeline", limit, offset] as const,
@@ -57,6 +71,14 @@ export const mvpQueryKeys = {
   supportTickets: (q: string, status: string, category: string, myOnly: boolean, limit: number, offset: number) =>
     ["support", "tickets", q, status, category, myOnly, limit, offset] as const
 };
+
+function sanitizePositiveInt(value: number | undefined, fallback: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return fallback;
+  const normalized = Math.trunc(value as number);
+  if (normalized < min) return min;
+  if (normalized > max) return max;
+  return normalized;
+}
 
 export async function fetchWorkspaceContext(): Promise<WorkspaceContextResponse> {
   const response = await apiClient.get<WorkspaceContextResponse>("/api/workspace/context");
@@ -80,9 +102,27 @@ export async function fetchDashboardSummary(recentLimit = 10): Promise<Dashboard
   return response.data;
 }
 
-export async function fetchDashboardAnalytics(months = 12): Promise<DashboardAnalytics> {
+export async function fetchDashboardPreferences(): Promise<DashboardPreferences> {
+  const response = await apiClient.get<DashboardPreferences>("/api/workspace/dashboard/preferences");
+  return response.data;
+}
+
+export async function updateDashboardPreferences(payload: DashboardPreferencesUpdatePayload): Promise<DashboardPreferences> {
+  const response = await apiClient.patch<DashboardPreferences>("/api/workspace/dashboard/preferences", payload);
+  return response.data;
+}
+
+export async function fetchDashboardAnalytics(params?: {
+  months?: number;
+  status_scope?: DashboardStatusScope;
+  assignee_scope?: DashboardAssigneeScope;
+}): Promise<DashboardAnalytics> {
   const response = await apiClient.get<DashboardAnalytics>("/api/workspace/dashboard/analytics", {
-    params: { months }
+    params: {
+      months: params?.months ?? 12,
+      status_scope: params?.status_scope ?? "all",
+      assignee_scope: params?.assignee_scope ?? "all"
+    }
   });
   return response.data;
 }
@@ -131,8 +171,8 @@ export async function fetchVehicles(params: {
   client_id?: string;
   limit?: number;
   offset?: number;
-}): Promise<PagedResponse<VehicleRecord>> {
-  const response = await apiClient.get<PagedResponse<VehicleRecord>>("/api/workspace/vehicles", {
+}): Promise<VehicleListResponse> {
+  const response = await apiClient.get<VehicleListResponse>("/api/workspace/vehicles", {
     params: {
       q: params.q ?? "",
       client_id: params.client_id,
@@ -192,12 +232,14 @@ export async function fetchEmployees(params: {
   limit?: number;
   offset?: number;
 }): Promise<PagedResponse<EmployeeRecord>> {
+  const limit = sanitizePositiveInt(params.limit, 20, 1, 50);
+  const offset = sanitizePositiveInt(params.offset, 0, 0, 100000);
   const response = await apiClient.get<PagedResponse<EmployeeRecord>>("/api/workspace/employees", {
     params: {
       q: params.q ?? "",
       role: params.role,
-      limit: params.limit ?? 20,
-      offset: params.offset ?? 0
+      limit,
+      offset
     }
   });
   return response.data;
@@ -225,14 +267,8 @@ export async function setEmployeeStatus(employeeId: string, isActive: boolean): 
   return response.data;
 }
 
-export async function fetchWorkOrders(params: { q?: string; limit?: number; offset?: number }): Promise<PagedResponse<WorkOrderRecord>> {
-  const response = await apiClient.get<PagedResponse<WorkOrderRecord>>("/api/workspace/work-orders", {
-    params: {
-      q: params.q ?? "",
-      limit: params.limit ?? 20,
-      offset: params.offset ?? 0
-    }
-  });
+export async function fetchWorkOrders(params: WorkOrderListParams): Promise<WorkOrderListResponse> {
+  const response = await apiClient.get<WorkOrderListResponse>("/api/workspace/work-orders", { params });
   return response.data;
 }
 
@@ -273,9 +309,9 @@ export async function setWorkOrderStatus(workOrderId: string, status: WorkOrderS
   return response.data;
 }
 
-export async function assignWorkOrder(workOrderId: string, employeeId: string | null): Promise<WorkOrderRecord> {
+export async function assignWorkOrder(workOrderId: string, employeeIds: string[]): Promise<WorkOrderRecord> {
   const response = await apiClient.post<WorkOrderRecord>(`/api/workspace/work-orders/${workOrderId}/assign`, {
-    employee_id: employeeId
+    employee_ids: employeeIds
   });
   return response.data;
 }
@@ -353,5 +389,15 @@ export async function createSupportTicket(payload: SupportTicketCreatePayload): 
 
 export async function updateSupportTicketStatus(ticketId: string, status: SupportTicketStatus): Promise<SupportTicketRecord> {
   const response = await apiClient.patch<SupportTicketRecord>(`/api/workspace/support/tickets/${ticketId}/status`, { status });
+  return response.data;
+}
+
+export async function voidWorkOrderPayment(workOrderId: string, paymentId: string, reason: string): Promise<PaymentRecord> {
+  const response = await apiClient.post<PaymentRecord>(`/api/workspace/work-orders/${workOrderId}/payments/${paymentId}/void`, { reason });
+  return response.data;
+}
+
+export async function addSupportTicketMessage(ticketId: string, message: string): Promise<SupportTicketRecord> {
+  const response = await apiClient.post<SupportTicketRecord>(`/api/workspace/support/tickets/${ticketId}/messages`, { message });
   return response.data;
 }

@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
 
   const result = await runWithWorkspaceSession(request, async (context) => {
     await assertAccess(context, "clients.read");
-    return listClients(context, { q: query, limit, offset });
+    return listClients(context, { q: query, limit, offset, sort: request.nextUrl.searchParams.get("sort") ?? "recent", activity: request.nextUrl.searchParams.get("activity") ?? "all", source: request.nextUrl.searchParams.get("source") ?? "" });
   });
 
   if ("status" in result) {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -72,3 +73,57 @@ class DashboardAnalyticsResponse(BaseModel):
     client_sources: list[AnalyticsClientSourceItem]
     popular_services: list[AnalyticsPopularServiceItem]
     problematic_orders: list[AnalyticsProblemOrderItem]
+
+
+DashboardMode = Literal["operations", "analytics"]
+DashboardDensity = Literal["compact", "full"]
+DashboardPeriod = Literal["3m", "6m", "12m"]
+DashboardStatusScope = Literal[
+    "all",
+    "active",
+    "completed",
+    "cancelled",
+    "completed_unpaid",
+    "new",
+    "in_progress",
+    "completed_paid",
+]
+
+
+class DashboardLayoutWidget(BaseModel):
+    id: str
+    order: int
+    visible: bool
+    variant: str
+
+
+class DashboardLayout(BaseModel):
+    version: int = 1
+    density: DashboardDensity
+    widgets: list[DashboardLayoutWidget]
+
+
+class DashboardFilterDefaults(BaseModel):
+    period: DashboardPeriod
+    status_scope: DashboardStatusScope
+    assignee_scope: str = "all"
+
+
+class DashboardFilters(BaseModel):
+    version: int = 1
+    defaults: DashboardFilterDefaults
+
+
+class DashboardPreferencesResponse(BaseModel):
+    mode: DashboardMode
+    filters_json: DashboardFilters
+    layout_json: DashboardLayout
+    baseline_version: int
+
+
+class DashboardPreferencesUpdateRequest(BaseModel):
+    mode: DashboardMode | None = None
+    filters_json: DashboardFilters | None = None
+    layout_json: DashboardLayout | None = None
+    reset_layout: bool = False
+    reset_filters: bool = False

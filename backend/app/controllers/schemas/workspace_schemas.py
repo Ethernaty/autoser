@@ -12,6 +12,7 @@ class WorkspaceContextResponse(BaseModel):
     workspace_name: str
     role: str
     user_id: UUID
+    can_accept_payments: bool = False
 
 
 class WorkspaceSettingsUpdateRequest(BaseModel):
@@ -21,6 +22,7 @@ class WorkspaceSettingsUpdateRequest(BaseModel):
     timezone: str | None = Field(default=None, min_length=1, max_length=64)
     currency: str | None = Field(default=None, min_length=1, max_length=8)
     working_hours_note: str | None = Field(default=None, max_length=2000)
+    logo_data_url: str | None = Field(default=None, max_length=700_000)
 
 
 class WorkspaceSettingsResponse(BaseModel):
@@ -34,5 +36,6 @@ class WorkspaceSettingsResponse(BaseModel):
     timezone: str
     currency: str
     working_hours_note: str | None
+    logo_data_url: str | None
     created_at: datetime
     updated_at: datetime

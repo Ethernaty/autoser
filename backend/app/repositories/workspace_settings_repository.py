@@ -9,7 +9,7 @@ from app.repositories.base import BaseRepositoryTenantScoped
 class WorkspaceSettingsRepository(BaseRepositoryTenantScoped[WorkspaceSettings]):
     """Tenant-scoped data access for workspace settings."""
 
-    ALLOWED_UPDATE_FIELDS = {"service_name", "phone", "address", "timezone", "currency", "working_hours_note"}
+    ALLOWED_UPDATE_FIELDS = {"service_name", "phone", "address", "timezone", "currency", "working_hours_note", "logo_data_url"}
 
     def __init__(self, db: Session, tenant_id=None):
         super().__init__(db=db, model=WorkspaceSettings, tenant_id=tenant_id)

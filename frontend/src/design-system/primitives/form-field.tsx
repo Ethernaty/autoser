@@ -13,8 +13,8 @@ type FormFieldProps = PropsWithChildren<{
 
 export function FormField({ id, label, required = false, hint, error, className, children }: FormFieldProps): JSX.Element {
   return (
-    <div className={cn("space-y-1", className)}>
-      <label className="text-sm font-medium text-neutral-700" htmlFor={id}>
+    <div className={cn("min-w-0 space-y-1", className)}>
+      <label className="block break-words text-sm font-medium text-neutral-700" htmlFor={id}>
         {label}
         {required ? <span className="ml-0.5 text-error">*</span> : null}
       </label>

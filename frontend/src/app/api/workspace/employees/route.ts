@@ -5,11 +5,20 @@ import { assertAccess } from "@/features/access/server/assert-access";
 import { createEmployee, listEmployees } from "@/features/workspace/api/server-mvp";
 import { enforceSameOrigin } from "@/shared/security/origin";
 
+function sanitizePositiveInt(value: string | null, fallback: number, min: number, max: number): number {
+  const parsed = Number(value ?? String(fallback));
+  if (!Number.isFinite(parsed)) return fallback;
+  const normalized = Math.trunc(parsed);
+  if (normalized < min) return min;
+  if (normalized > max) return max;
+  return normalized;
+}
+
 export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams.get("q") ?? "";
   const role = request.nextUrl.searchParams.get("role") ?? undefined;
-  const limit = Number(request.nextUrl.searchParams.get("limit") ?? "20");
-  const offset = Number(request.nextUrl.searchParams.get("offset") ?? "0");
+  const limit = sanitizePositiveInt(request.nextUrl.searchParams.get("limit"), 20, 1, 50);
+  const offset = sanitizePositiveInt(request.nextUrl.searchParams.get("offset"), 0, 0, 100000);
 
   const result = await runWithWorkspaceSession(request, async (workspaceContext) => {
     await assertAccess(workspaceContext, "employees.read");
@@ -35,6 +44,8 @@ export async function POST(request: NextRequest) {
     email?: string;
     password?: string;
     role?: string;
+    job_title?: string | null;
+    can_accept_payments?: boolean;
   };
   try {
     payload = (await request.json()) as {
@@ -42,6 +53,8 @@ export async function POST(request: NextRequest) {
       email?: string;
       password?: string;
       role?: string;
+      job_title?: string | null;
+      can_accept_payments?: boolean;
     };
   } catch {
     return NextResponse.json({ message: "Invalid request payload" }, { status: 400 });
@@ -55,7 +68,7 @@ export async function POST(request: NextRequest) {
     await assertAccess(workspaceContext, "employees.create");
     return createEmployee(
       workspaceContext,
-      { full_name: payload.full_name!, email: payload.email ?? null, password: payload.password!, role: payload.role! },
+      { full_name: payload.full_name!, email: payload.email ?? null, password: payload.password!, role: payload.role!, job_title: payload.job_title, can_accept_payments: payload.can_accept_payments },
       { idempotencyKey }
     );
   });
